@@ -14,6 +14,8 @@ interface BucketExpenseGridProps {
   monthKey: string;
   buckets: BucketConfig[];
   visibleBucketIds: string[];
+  maxVisibleTables: number;
+  defaultExpenseStatus: 'paid' | 'scheduled';
   bucketMap: Record<string, BucketMetrics>;
   expenses: ExpenseEntry[];
   categoriesByBucket: Record<string, string[]>;
@@ -30,6 +32,7 @@ interface BucketExpenseGridProps {
 interface SingleBucketTableProps {
   monthKey: string;
   bucket: BucketConfig;
+  defaultExpenseStatus: 'paid' | 'scheduled';
   metrics: BucketMetrics | undefined;
   expenses: ExpenseEntry[];
   categories: string[];
@@ -44,6 +47,7 @@ interface SingleBucketTableProps {
 const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
   monthKey,
   bucket,
+  defaultExpenseStatus,
   metrics,
   expenses,
   categories,
@@ -91,7 +95,7 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
       bucket: bucket.id,
       category: category || 'General',
       amount: num,
-      status: 'paid',
+      status: defaultExpenseStatus,
     });
 
     setTitle('');
@@ -285,6 +289,8 @@ export const BucketExpenseGrid: React.FC<BucketExpenseGridProps> = ({
   monthKey,
   buckets,
   visibleBucketIds,
+  maxVisibleTables,
+  defaultExpenseStatus,
   bucketMap,
   expenses,
   categoriesByBucket,
@@ -299,13 +305,14 @@ export const BucketExpenseGrid: React.FC<BucketExpenseGridProps> = ({
 }) => {
   const [search, setSearch] = useState('');
 
-  // Ensure strictly at most 3 tables shown at once
+  // Strictly enforce maxVisibleTables (default 3)
   const visibleBuckets = useMemo(() => {
-    const idSet = new Set(visibleBucketIds.slice(0, 3));
+    const cap = Math.max(1, Math.min(3, maxVisibleTables));
+    const idSet = new Set(visibleBucketIds.slice(0, cap));
     const matched = buckets.filter((b) => idSet.has(b.id));
-    if (matched.length > 0) return matched.slice(0, 3);
-    return buckets.slice(0, 3);
-  }, [buckets, visibleBucketIds]);
+    if (matched.length > 0) return matched.slice(0, cap);
+    return buckets.slice(0, cap);
+  }, [buckets, visibleBucketIds, maxVisibleTables]);
 
   const gridColsClass =
     visibleBuckets.length === 1
@@ -316,14 +323,14 @@ export const BucketExpenseGrid: React.FC<BucketExpenseGridProps> = ({
 
   return (
     <section className="space-y-2.5">
-      {/* Section Header + Max-3 Table Switcher */}
+      {/* Section Header + Table Switcher */}
       <div className="flex flex-wrap items-center justify-between gap-2 border border-neutral-300 bg-white px-3 py-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-wide text-neutral-800">
-            3. Bucket Expense Tables (Showing {visibleBuckets.length} of {buckets.length} · Max 3)
+            3. Bucket Expense Tables (Showing {visibleBuckets.length} of {buckets.length} · Max {maxVisibleTables})
           </span>
 
-          {/* Bucket Selector Pills (Especially useful when user adds 4+ splits!) */}
+          {/* Bucket Selector Pills */}
           <div className="flex flex-wrap items-center gap-1">
             {buckets.map((b) => {
               const theme = getBucketTheme(b.color);
@@ -347,7 +354,7 @@ export const BucketExpenseGrid: React.FC<BucketExpenseGridProps> = ({
             })}
           </div>
 
-          {buckets.length > 3 && (
+          {buckets.length > maxVisibleTables && (
             <div className="flex items-center gap-1">
               <button
                 type="button"
@@ -383,13 +390,14 @@ export const BucketExpenseGrid: React.FC<BucketExpenseGridProps> = ({
         </div>
       </div>
 
-      {/* Individual Side-by-Side Bucket Expense Tables (Max 3) */}
+      {/* Individual Side-by-Side Bucket Expense Tables */}
       <div className={`grid gap-3 ${gridColsClass}`}>
         {visibleBuckets.map((bucket, idx) => (
           <SingleBucketTable
             key={bucket.id}
             monthKey={monthKey}
             bucket={bucket}
+            defaultExpenseStatus={defaultExpenseStatus}
             metrics={bucketMap[bucket.id]}
             expenses={expenses.filter((e) => e.bucket === bucket.id)}
             categories={categoriesByBucket[bucket.id] || FALLBACK_CATEGORIES}

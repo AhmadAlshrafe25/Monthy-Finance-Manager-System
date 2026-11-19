@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, Settings, Table2 } from 'lucide-react';
+import { BarChart3, Settings, Wallet } from 'lucide-react';
 import {
   ActiveSheet,
   AppSettings,
@@ -18,6 +18,11 @@ import {
   getMonthLabel,
   normalizeBucketsSplit,
 } from './lib/calculations';
+import {
+  DEFAULT_EXCHANGE_RATES,
+  convertStoreCurrency,
+  getConversionRate,
+} from './lib/currency';
 import {
   FALLBACK_CATEGORIES,
   createEmptyMonth,
@@ -53,7 +58,7 @@ export const App: React.FC = () => {
   const showToast = useCallback((text: string, onUndo?: () => void) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast({ id: String(Date.now()), text, onUndo });
-    toastTimerRef.current = window.setTimeout(() => setToast(null), 4000);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 4500);
   }, []);
 
   useEffect(() => {
@@ -92,23 +97,25 @@ export const App: React.FC = () => {
     );
   }, [store]);
 
-  // Keep visibleBucketIds synced (max 3 tables viewed at once)
+  const maxVisibleTables = Math.max(1, Math.min(3, store?.settings.maxVisibleTables ?? 3));
+
+  // Keep visibleBucketIds synced (capped at maxVisibleTables, default 3)
   useEffect(() => {
     if (!activeMonthData) return;
     const validIds = activeMonthData.buckets.map((b) => b.id);
     setVisibleBucketIds((prev) => {
       const kept = prev.filter((id) => validIds.includes(id));
-      if (kept.length >= Math.min(3, validIds.length)) {
-        return kept.slice(0, 3);
+      if (kept.length >= Math.min(maxVisibleTables, validIds.length)) {
+        return kept.slice(0, maxVisibleTables);
       }
       const next = [...kept];
       for (const id of validIds) {
-        if (next.length >= 3) break;
+        if (next.length >= maxVisibleTables) break;
         if (!next.includes(id)) next.push(id);
       }
       return next;
     });
-  }, [activeMonthData]);
+  }, [activeMonthData, maxVisibleTables]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -166,6 +173,16 @@ export const App: React.FC = () => {
     return calculateMultiMonthTrends(store.months);
   }, [store]);
 
+  const workbookStats = useMemo(() => {
+    if (!store) return { monthCount: 0, incomeCount: 0, expenseCount: 0 };
+    const monthList = Object.values(store.months);
+    return {
+      monthCount: monthList.length,
+      incomeCount: monthList.reduce((s, m) => s + m.incomes.length, 0),
+      expenseCount: monthList.reduce((s, m) => s + m.expenses.length, 0),
+    };
+  }, [store]);
+
   if (!store || !activeMonthData || !summary) {
     return (
       <div className="flex h-screen items-center justify-center bg-white text-xs text-neutral-600">
@@ -209,7 +226,8 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (delta > 0) {
+    const shouldCarry = store.settings.autoCarryOverNextMonth ?? true;
+    if (delta > 0 && shouldCarry) {
       const cloned = cloneRecurringForNewMonth(activeMonthData, targetKey);
       commitStore((prev) => ({
         ...prev,
@@ -278,7 +296,7 @@ export const App: React.FC = () => {
     });
   };
 
-  // Dynamic Budget Split Buckets (Add / Edit / Color / Delete / Auto-Balance)
+  // Dynamic Budget Split Buckets
   const handleAddBucket = (name: string, color: BucketColorKey, splitPercent: number) => {
     const id = `bkt_${crypto.randomUUID().slice(0, 8)}`;
     const newBucket: BucketConfig = { id, name, color, splitPercent };
@@ -304,9 +322,8 @@ export const App: React.FC = () => {
       };
     });
 
-    // Bring newly created bucket table into view (max 3 visible)
     setVisibleBucketIds((prev) => {
-      if (prev.length < 3) return [...prev, id];
+      if (prev.length < maxVisibleTables) return [...prev, id];
       return [...prev.slice(1), id];
     });
     showToast(`Added "${name}" split & table`);
@@ -348,15 +365,25 @@ export const App: React.FC = () => {
     showToast('Balanced all splits to 100%');
   };
 
-  // Max-3 Bucket Table Visibility Controls
+  const handleSaveBucketsAsDefault = () => {
+    commitStore((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        defaultBuckets: activeMonthData.buckets.map((b) => ({ ...b })),
+      },
+    }));
+    showToast('Saved current splits as default template for new months');
+  };
+
+  // Max-N Bucket Table Visibility Controls
   const handleToggleVisibleBucket = (bucketId: string) => {
     setVisibleBucketIds((prev) => {
       if (prev.includes(bucketId)) {
-        if (prev.length <= 1) return prev; // Keep at least 1 table visible
+        if (prev.length <= 1) return prev;
         return prev.filter((id) => id !== bucketId);
       }
-      if (prev.length < 3) return [...prev, bucketId];
-      // Replace the oldest visible table so max stays 3
+      if (prev.length < maxVisibleTables) return [...prev, bucketId];
       return [...prev.slice(1), bucketId];
     });
   };
@@ -364,19 +391,19 @@ export const App: React.FC = () => {
   const handleFocusBucketTable = (bucketId: string) => {
     setVisibleBucketIds((prev) => {
       if (prev.includes(bucketId)) return prev;
-      if (prev.length < 3) return [...prev, bucketId];
+      if (prev.length < maxVisibleTables) return [...prev, bucketId];
       return [...prev.slice(1), bucketId];
     });
   };
 
   const handleShiftVisibleWindow = (delta: number) => {
     const allIds = activeMonthData.buckets.map((b) => b.id);
-    if (allIds.length <= 3) return;
+    if (allIds.length <= maxVisibleTables) return;
     setVisibleBucketIds((prev) => {
       const firstIdx = Math.max(0, allIds.indexOf(prev[0] || allIds[0]));
       const nextStart = (firstIdx + delta + allIds.length) % allIds.length;
       const result: string[] = [];
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < maxVisibleTables; i++) {
         result.push(allIds[(nextStart + i) % allIds.length]);
       }
       return result;
@@ -412,16 +439,39 @@ export const App: React.FC = () => {
     });
   };
 
-  // Settings & Data Portability
+  // Settings & Real Currency Conversion
   const handleUpdateSettings = (nextSettings: AppSettings) => {
     commitStore((prev) => ({ ...prev, settings: nextSettings }));
   };
 
-  const handleChangeCurrency = (currency: CurrencyConfig) => {
-    commitStore((prev) => ({
-      ...prev,
-      settings: { ...prev.settings, currency },
-    }));
+  const handleChangeCurrency = (targetCurrency: CurrencyConfig) => {
+    const prevSnapshot = store;
+    const fromCode = store.settings.currency.code;
+    const toCode = targetCurrency.code;
+    if (fromCode === toCode) return;
+
+    const shouldConvert = store.settings.autoConvertOnCurrencySwitch ?? true;
+    const rates = store.settings.exchangeRates || DEFAULT_EXCHANGE_RATES;
+    const rate = getConversionRate(fromCode, toCode, rates);
+
+    if (shouldConvert) {
+      const converted = convertStoreCurrency(store, targetCurrency);
+      setStore(converted);
+      saveStore(converted);
+      showToast(
+        `Converted ${fromCode} → ${toCode} (1 ${fromCode} = ${rate.toFixed(3)} ${toCode})`,
+        () => {
+          setStore(prevSnapshot);
+          saveStore(prevSnapshot);
+        }
+      );
+    } else {
+      commitStore((prev) => ({
+        ...prev,
+        settings: { ...prev.settings, currency: targetCurrency },
+      }));
+      showToast(`Changed currency symbol to ${toCode}`);
+    }
   };
 
   const handleExportCsv = async () => {
@@ -508,6 +558,8 @@ export const App: React.FC = () => {
                 monthKey={activeMonthData.monthKey}
                 buckets={activeMonthData.buckets}
                 visibleBucketIds={visibleBucketIds}
+                maxVisibleTables={maxVisibleTables}
+                defaultExpenseStatus={store.settings.defaultExpenseStatus ?? 'paid'}
                 bucketMap={summary.bucketMap}
                 expenses={activeMonthData.expenses}
                 categoriesByBucket={store.settings.categories}
@@ -536,7 +588,10 @@ export const App: React.FC = () => {
             <SettingsView
               buckets={activeMonthData.buckets}
               settings={store.settings}
+              stats={workbookStats}
               onUpdateSettings={handleUpdateSettings}
+              onChangeCurrency={handleChangeCurrency}
+              onSaveBucketsAsDefault={handleSaveBucketsAsDefault}
               onExportJson={handleExportJson}
               onExportCsv={handleExportCsv}
               onImportJson={handleImportJson}
@@ -547,7 +602,7 @@ export const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Bottom Excel Sheet Tabs */}
+      {/* Bottom Tabs: Simple Salary, Analytics, Settings */}
       <footer className="flex h-9 shrink-0 items-center justify-between border-t border-neutral-300 bg-neutral-100 px-3 select-none">
         <div className="flex h-full items-end gap-1">
           <button
@@ -559,8 +614,8 @@ export const App: React.FC = () => {
                 : 'border-transparent bg-neutral-200/70 text-neutral-600 hover:bg-neutral-200'
             }`}
           >
-            <Table2 className="h-3.5 w-3.5" />
-            Sheet1: Monthly Budget
+            <Wallet className="h-3.5 w-3.5" />
+            Salary
           </button>
 
           <button
@@ -573,7 +628,7 @@ export const App: React.FC = () => {
             }`}
           >
             <BarChart3 className="h-3.5 w-3.5" />
-            Sheet2: Analytics
+            Analytics
           </button>
 
           <button
@@ -586,7 +641,7 @@ export const App: React.FC = () => {
             }`}
           >
             <Settings className="h-3.5 w-3.5" />
-            Sheet3: Settings
+            Settings
           </button>
         </div>
 

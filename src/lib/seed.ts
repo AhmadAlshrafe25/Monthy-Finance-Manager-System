@@ -1,4 +1,5 @@
 import { AppSettings, BucketConfig, FinanceStore, MonthData } from '../types/finance';
+import { DEFAULT_EXCHANGE_RATES } from './currency';
 import { getCurrentMonthKey, shiftMonthKey } from './format';
 
 export const DEFAULT_BUCKETS: BucketConfig[] = [
@@ -41,6 +42,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   currency: { code: 'JOD', symbol: 'JD ', decimals: 2 },
   defaultBuckets: DEFAULT_BUCKETS,
   categories: DEFAULT_CATEGORIES,
+  exchangeRates: { ...DEFAULT_EXCHANGE_RATES },
+  autoConvertOnCurrencySwitch: true,
+  autoCarryOverNextMonth: true,
+  defaultExpenseStatus: 'paid',
+  warningThresholdPct: 75,
+  maxVisibleTables: 3,
   isSampleData: false,
 };
 
@@ -63,6 +70,7 @@ export function createEmptyStore(currency = DEFAULT_SETTINGS.currency): FinanceS
     activeMonth: currentMonth,
     settings: {
       ...DEFAULT_SETTINGS,
+      exchangeRates: { ...DEFAULT_EXCHANGE_RATES },
       currency,
       isSampleData: false,
     },
@@ -72,13 +80,35 @@ export function createEmptyStore(currency = DEFAULT_SETTINGS.currency): FinanceS
   };
 }
 
-// Automatically migrate v1 fixed-3-bucket stores so existing user data is never lost
+// Automatically migrate v1 fixed-3-bucket stores and hydrate any missing settings fields
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function migrateStore(raw: any): FinanceStore | null {
   if (!raw || typeof raw !== 'object' || !raw.months) return null;
 
+  const hydrateSettings = (s: Partial<AppSettings> | undefined): AppSettings => ({
+    currency: s?.currency || DEFAULT_SETTINGS.currency,
+    defaultBuckets:
+      Array.isArray(s?.defaultBuckets) && s.defaultBuckets.length > 0
+        ? s.defaultBuckets
+        : DEFAULT_BUCKETS.map((b) => ({ ...b })),
+    categories: s?.categories || DEFAULT_CATEGORIES,
+    exchangeRates: {
+      ...DEFAULT_EXCHANGE_RATES,
+      ...(s?.exchangeRates || {}),
+    },
+    autoConvertOnCurrencySwitch: s?.autoConvertOnCurrencySwitch ?? true,
+    autoCarryOverNextMonth: s?.autoCarryOverNextMonth ?? true,
+    defaultExpenseStatus: s?.defaultExpenseStatus ?? 'paid',
+    warningThresholdPct: s?.warningThresholdPct ?? 75,
+    maxVisibleTables: s?.maxVisibleTables ?? 3,
+    isSampleData: Boolean(s?.isSampleData),
+  });
+
   if (raw.version === 2) {
-    return raw as FinanceStore;
+    return {
+      ...(raw as FinanceStore),
+      settings: hydrateSettings(raw.settings),
+    };
   }
 
   const migratedMonths: Record<string, MonthData> = {};
@@ -103,12 +133,7 @@ export function migrateStore(raw: any): FinanceStore | null {
   return {
     version: 2,
     activeMonth: raw.activeMonth || getCurrentMonthKey(),
-    settings: {
-      currency: raw.settings?.currency || DEFAULT_SETTINGS.currency,
-      defaultBuckets: DEFAULT_BUCKETS.map((b) => ({ ...b })),
-      categories: raw.settings?.categories || DEFAULT_CATEGORIES,
-      isSampleData: Boolean(raw.settings?.isSampleData),
-    },
+    settings: hydrateSettings(raw.settings),
     months: migratedMonths,
   };
 }

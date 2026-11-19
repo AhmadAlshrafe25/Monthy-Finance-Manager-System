@@ -61,6 +61,12 @@ export interface AppSettings {
   currency: CurrencyConfig;
   defaultBuckets: BucketConfig[];
   categories: Record<string, string[]>;
+  exchangeRates?: Record<string, number>;
+  autoConvertOnCurrencySwitch?: boolean;
+  autoCarryOverNextMonth?: boolean;
+  defaultExpenseStatus?: ExpenseStatus;
+  warningThresholdPct?: number;
+  maxVisibleTables?: number;
   isSampleData?: boolean;
 }
 

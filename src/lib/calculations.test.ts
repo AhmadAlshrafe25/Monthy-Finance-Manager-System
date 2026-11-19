@@ -5,8 +5,9 @@ import {
   cloneRecurringForNewMonth,
   normalizeBucketsSplit,
 } from './calculations';
-import { migrateStore } from './seed';
-import { MonthData } from '../types/finance';
+import { convertStoreCurrency } from './currency';
+import { DEFAULT_SETTINGS, migrateStore } from './seed';
+import { FinanceStore, MonthData } from '../types/finance';
 
 describe('Dynamic Budget & Salary Cut Calculation Engine', () => {
   const sampleMonth: MonthData = {
@@ -165,8 +166,37 @@ describe('Dynamic Budget & Salary Cut Calculation Engine', () => {
   it('clones recurring items and custom buckets into next month', () => {
     const next = cloneRecurringForNewMonth(sampleMonth, '2026-12');
     expect(next.buckets).toHaveLength(3);
-    expect(next.incomes).toHaveLength(2); // Salary + recurring salary cut
+    expect(next.incomes).toHaveLength(2);
     expect(next.expenses).toHaveLength(1);
     expect(next.expenses[0].status).toBe('scheduled');
+  });
+
+  it('converts salaries, negative cuts, and monthly expenses accurately when switching currency (e.g. USD -> JOD)', () => {
+    const usdStore: FinanceStore = {
+      version: 2,
+      activeMonth: '2026-11',
+      settings: {
+        ...DEFAULT_SETTINGS,
+        currency: { code: 'USD', symbol: '$', decimals: 2 },
+        exchangeRates: { USD: 1, JOD: 0.709 },
+      },
+      months: {
+        '2026-11': sampleMonth,
+      },
+    };
+
+    const jodStore = convertStoreCurrency(usdStore, {
+      code: 'JOD',
+      symbol: 'JD ',
+      decimals: 2,
+    });
+
+    expect(jodStore.settings.currency.code).toBe('JOD');
+    // 1000 USD -> 709 JOD
+    expect(jodStore.months['2026-11'].incomes[0].amount).toBe(709);
+    // -100 USD salary cut -> -70.9 JOD
+    expect(jodStore.months['2026-11'].incomes[1].amount).toBe(-70.9);
+    // 400 USD rent -> 283.6 JOD
+    expect(jodStore.months['2026-11'].expenses[0].amount).toBe(283.6);
   });
 });

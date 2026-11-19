@@ -1,8 +1,13 @@
 {
   "name": "monthly-finance-manager-system",
   "version": "1.0.0",
-  "description": "Fast, table-first desktop personal finance manager for splitting salary & extra incomes into Mandatory, Fun Spending, and Savings/Debt with real-time fee deductions and deep analytics.",
-  "author": "Ahmad",
+  "description": "Fast, Excel-sheet-style desktop personal finance manager for splitting salary & extra incomes with real-time fee deductions, currency conversion, cloud sync, and deep analytics.",
+  "author": "Ahmad <Blackcrow10925@gmail.com>",
+  "homepage": "https://github.com/AhmadAlshrafe25/Monthy-Finance-Manager-System",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AhmadAlshrafe25/Monthy-Finance-Manager-System.git"
+  },
   "license": "MIT",
   "main": "electron/main.cjs",
   "private": true,
@@ -15,8 +20,11 @@
     "start": "npm run build && electron .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "npm run build && electron . --e2e-test",
+    "test:all": "vitest run && npm run test:e2e",
     "package:linux": "npm run build && electron-builder --linux",
     "package:win": "npm run build && electron-builder --win",
+    "package:all": "npm run build && electron-builder --linux --win",
     "package:mac": "npm run build && electron-builder --mac"
   },
   "dependencies": {
@@ -51,14 +59,25 @@
     },
     "linux": {
       "target": [
-        "AppImage"
+        "AppImage",
+        "tar.gz"
       ],
-      "category": "Finance"
+      "artifactName": "Monthly-Finance-Manager-Linux-${arch}.${ext}",
+      "category": "Office;Finance",
+      "synopsis": "Excel-style monthly salary & budget split manager"
     },
     "win": {
       "target": [
-        "nsis"
-      ]
+        "nsis",
+        "zip"
+      ],
+      "artifactName": "Monthly-Finance-Manager-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "artifactName": "Monthly-Finance-Manager-Windows-Setup.${ext}"
     },
     "mac": {
       "target": [

@@ -1,7 +1,16 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const cloudSync = require('./cloudSync.cjs');
+const { runElectronE2E } = require('./e2e.cjs');
+
+const isE2ETest = process.argv.includes('--e2e-test');
+if (isE2ETest) {
+  const tempUserData = path.join(os.tmpdir(), `mfms-e2e-${process.pid}`);
+  fs.mkdirSync(tempUserData, { recursive: true });
+  app.setPath('userData', tempUserData);
+}
 
 const STORE_FILENAME = 'finance-store.json';
 
@@ -58,7 +67,7 @@ function createWindow() {
   Menu.setApplicationMenu(null);
 
   win.once('ready-to-show', () => {
-    if (!isSmokeTest) {
+    if (!isSmokeTest && !isE2ETest) {
       win.show();
     }
   });
@@ -67,6 +76,28 @@ function createWindow() {
     win.webContents.once('did-finish-load', () => {
       console.log('ELECTRON_SMOKE_TEST_OK');
       app.quit();
+    });
+  }
+
+  if (isE2ETest) {
+    win.webContents.once('did-finish-load', async () => {
+      const cleanup = () => {
+        try {
+          fs.rmSync(app.getPath('userData'), { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors
+        }
+      };
+      try {
+        await new Promise((r) => setTimeout(r, 250));
+        await runElectronE2E(win, getStorePath());
+        cleanup();
+        app.exit(0);
+      } catch (err) {
+        console.error('E2E_TEST_FAILED:', err);
+        cleanup();
+        app.exit(1);
+      }
     });
   }
 

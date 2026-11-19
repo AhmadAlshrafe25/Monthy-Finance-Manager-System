@@ -15,35 +15,35 @@ import {
   YAxis,
 } from 'recharts';
 import {
-  BUCKET_META,
-  BucketType,
+  BUCKET_COLORS,
+  BucketConfig,
   CurrencyConfig,
   MonthSummary,
   MultiMonthPoint,
+  getBucketTheme,
 } from '../types/finance';
-import { BUCKETS } from '../lib/calculations';
 import { formatMoney, formatPercent } from '../lib/format';
 
 interface AnalyticsViewProps {
+  buckets: BucketConfig[];
   summary: MonthSummary;
   multiMonthTrends: MultiMonthPoint[];
   currency: CurrencyConfig;
 }
 
-// Strict Red / Yellow / Green palette shades only
-const CATEGORY_COLORS = [
+const CHART_PALETTE = [
   '#dc2626',
   '#eab308',
   '#16a34a',
-  '#ef4444',
-  '#ca8a04',
-  '#22c55e',
-  '#b91c1c',
-  '#facc15',
-  '#15803d',
+  '#2563eb',
+  '#ea580c',
+  '#9333ea',
+  '#0d9488',
+  '#db2777',
 ];
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
+  buckets,
   summary,
   multiMonthTrends,
   currency,
@@ -53,29 +53,44 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
   const bucketComparisonData = useMemo(
     () =>
-      BUCKETS.map((b) => ({
-        name: BUCKET_META[b].shortLabel,
-        Budget: summary.buckets[b].allocated,
-        Cut: summary.buckets[b].spent,
-        Remaining: Math.max(0, summary.buckets[b].remaining),
+      summary.buckets.map((b) => ({
+        name: b.name,
+        Budget: b.allocated,
+        Cut: b.spent,
+        Remaining: Math.max(0, b.remaining),
       })),
     [summary]
   );
 
   const pieData = useMemo(() => {
     if (pieMode === 'bucket') {
-      return BUCKETS.map((b) => ({
-        name: BUCKET_META[b].label,
-        value: summary.buckets[b].spent,
-        color: BUCKET_META[b].color,
-      })).filter((d) => d.value > 0);
+      return summary.buckets
+        .map((b) => ({
+          name: b.name,
+          value: b.spent,
+          color: BUCKET_COLORS[b.color]?.hex || '#16a34a',
+        }))
+        .filter((d) => d.value > 0);
     }
     return summary.categories.slice(0, 8).map((c, i) => ({
       name: c.category,
       value: c.total,
-      color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+      color: CHART_PALETTE[i % CHART_PALETTE.length],
     }));
   }, [pieMode, summary]);
+
+  const multiMonthChartData = useMemo(() => {
+    return multiMonthTrends.map((pt) => {
+      const row: Record<string, string | number> = {
+        label: pt.label,
+        Income: pt.income,
+      };
+      for (const b of buckets) {
+        row[b.name] = pt.byBucket[b.id] || 0;
+      }
+      return row;
+    });
+  }, [multiMonthTrends, buckets]);
 
   const sortedCategories = useMemo(
     () => [...summary.categories].sort((a, b) => b[catSort] - a[catSort]),
@@ -97,63 +112,65 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         <div className="border-b border-neutral-300 bg-green-50 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-green-900">
           Monthly Financial Indicators
         </div>
-        <table className="excel-table text-xs tabular-nums">
-          <thead>
-            <tr className="bg-neutral-100 text-[11px] font-bold text-neutral-600">
-              <th className="px-3 py-1.5 text-left">Total Income</th>
-              <th className="px-3 py-1.5 text-left">Total Fees Cut</th>
-              <th className="px-3 py-1.5 text-left">Total Remaining</th>
-              <th className="px-3 py-1.5 text-left">Savings Rate</th>
-              <th className="px-3 py-1.5 text-left">Daily Burn Rate</th>
-              <th className="px-3 py-1.5 text-left">Safe Daily Fun</th>
-              <th className="px-3 py-1.5 text-left">Projected Month End</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="bg-green-50 px-3 py-2.5 font-mono text-sm font-bold text-green-800">
-                {formatMoney(summary.totalIncome, currency)}
-              </td>
-              <td className="bg-red-50 px-3 py-2.5 font-mono text-sm font-bold text-red-700">
-                -{formatMoney(summary.totalSpent, currency)}
-              </td>
-              <td
-                className={`px-3 py-2.5 font-mono text-sm font-bold ${
-                  summary.totalRemaining >= 0
-                    ? 'bg-green-50 text-green-800'
-                    : 'bg-red-100 text-red-700'
-                }`}
-              >
-                {formatMoney(summary.totalRemaining, currency)}
-              </td>
-              <td className="px-3 py-2.5 font-mono text-sm font-bold text-green-700">
-                {formatPercent(summary.effectiveSavingsRatePct, 1)}
-              </td>
-              <td className="bg-yellow-50 px-3 py-2.5 font-mono text-sm font-bold text-yellow-900">
-                {formatMoney(summary.burnRatePerDay, currency)}/d
-              </td>
-              <td className="bg-yellow-50 px-3 py-2.5 font-mono text-sm font-bold text-yellow-900">
-                {formatMoney(summary.safeDailyFunSpend, currency)}/d
-              </td>
-              <td
-                className={`px-3 py-2.5 font-mono text-sm font-bold ${
-                  summary.projectedEndBalance >= 0
-                    ? 'text-green-700'
-                    : 'bg-red-50 text-red-700'
-                }`}
-              >
-                {formatMoney(summary.projectedEndBalance, currency, true)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="overflow-x-auto">
+          <table className="excel-table text-xs tabular-nums">
+            <thead>
+              <tr className="bg-neutral-100 text-[11px] font-bold text-neutral-600">
+                <th className="px-3 py-1.5 text-left">Gross Income</th>
+                <th className="px-3 py-1.5 text-left">Salary Cuts (-)</th>
+                <th className="px-3 py-1.5 text-left">Net Income</th>
+                <th className="px-3 py-1.5 text-left">Total Expenses Cut</th>
+                <th className="px-3 py-1.5 text-left">Total Remaining</th>
+                <th className="px-3 py-1.5 text-left">Daily Burn</th>
+                <th className="px-3 py-1.5 text-left">Projected Month End</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td className="px-3 py-2.5 font-mono text-sm font-bold text-neutral-800">
+                  {formatMoney(summary.grossIncome, currency)}
+                </td>
+                <td className="bg-red-50 px-3 py-2.5 font-mono text-sm font-bold text-red-700">
+                  -{formatMoney(summary.salaryCuts, currency)}
+                </td>
+                <td className="bg-green-50 px-3 py-2.5 font-mono text-sm font-bold text-green-800">
+                  {formatMoney(summary.totalIncome, currency)}
+                </td>
+                <td className="bg-red-50 px-3 py-2.5 font-mono text-sm font-bold text-red-700">
+                  -{formatMoney(summary.totalSpent, currency)}
+                </td>
+                <td
+                  className={`px-3 py-2.5 font-mono text-sm font-bold ${
+                    summary.totalRemaining >= 0
+                      ? 'bg-green-50 text-green-800'
+                      : 'bg-red-100 text-red-700'
+                  }`}
+                >
+                  {formatMoney(summary.totalRemaining, currency)}
+                </td>
+                <td className="bg-yellow-50 px-3 py-2.5 font-mono text-sm font-bold text-yellow-900">
+                  {formatMoney(summary.burnRatePerDay, currency)}/d
+                </td>
+                <td
+                  className={`px-3 py-2.5 font-mono text-sm font-bold ${
+                    summary.projectedEndBalance >= 0
+                      ? 'text-green-700'
+                      : 'bg-red-50 text-red-700'
+                  }`}
+                >
+                  {formatMoney(summary.projectedEndBalance, currency, true)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Charts Row 1 */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <div className="border border-neutral-300 bg-white lg:col-span-7">
           <div className="border-b border-neutral-300 bg-neutral-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-neutral-800">
-            Budget Allocated vs. Fees Cut (Per Bucket)
+            Budget Allocated vs. Fees Cut (Per Split)
           </div>
           <div className="h-64 p-3">
             <ResponsiveContainer width="100%" height="100%">
@@ -310,11 +327,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
         <div className="border border-neutral-300 bg-white lg:col-span-6">
           <div className="border-b border-neutral-300 bg-neutral-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-neutral-800">
-            Multi-Month History (Income & Buckets)
+            Multi-Month History (Net Income & Buckets)
           </div>
           <div className="h-64 p-3">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={multiMonthTrends}>
+              <BarChart data={multiMonthChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e5e5" vertical={false} />
                 <XAxis dataKey="label" stroke="#525252" fontSize={11} tickLine={false} />
                 <YAxis
@@ -328,10 +345,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   formatter={(value: number) => formatMoney(value, currency)}
                 />
                 <Legend wrapperStyle={{ fontSize: '11px' }} />
-                <Bar dataKey="income" name="Income" fill="#15803d" maxBarSize={24} />
-                <Bar dataKey="mandatory" name="Mandatory" stackId="a" fill="#dc2626" maxBarSize={24} />
-                <Bar dataKey="fun" name="Fun Spending" stackId="a" fill="#eab308" maxBarSize={24} />
-                <Bar dataKey="savings" name="Savings / Debt" stackId="a" fill="#22c55e" maxBarSize={24} />
+                <Bar dataKey="Income" fill="#15803d" maxBarSize={24} />
+                {buckets.map((b) => (
+                  <Bar
+                    key={b.id}
+                    dataKey={b.name}
+                    stackId="a"
+                    fill={BUCKET_COLORS[b.color]?.hex || '#16a34a'}
+                    maxBarSize={24}
+                  />
+                ))}
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -372,7 +395,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <th className="px-3 py-1.5 text-right">Count</th>
               <th className="px-3 py-1.5 text-right">Average</th>
               <th className="px-3 py-1.5 text-right">% of Bucket</th>
-              <th className="px-3 py-1.5 text-right">% of Income</th>
+              <th className="px-3 py-1.5 text-right">% of Net Income</th>
               <th className="px-3 py-1.5 text-right">Total Cut</th>
             </tr>
           </thead>
@@ -385,16 +408,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </tr>
             ) : (
               sortedCategories.map((cat, idx) => {
-                const meta = BUCKET_META[cat.bucket as BucketType];
+                const theme = getBucketTheme(cat.bucketColor);
                 return (
-                  <tr key={`${cat.bucket}-${cat.category}`} className="hover:bg-yellow-50/40">
+                  <tr key={`${cat.bucketId}-${cat.category}`} className="hover:bg-yellow-50/40">
                     <td className="bg-neutral-50 text-center font-mono text-[11px] text-neutral-500">
                       {idx + 1}
                     </td>
                     <td className="px-3 py-1.5 font-semibold text-neutral-900">{cat.category}</td>
                     <td className="px-3 py-1.5">
-                      <span className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold ${meta.badgeClass}`}>
-                        {meta.shortLabel}
+                      <span className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold ${theme.badgeClass}`}>
+                        {cat.bucketName}
                       </span>
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono">{cat.count}</td>

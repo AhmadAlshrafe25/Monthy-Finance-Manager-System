@@ -2,15 +2,16 @@ import React, { useEffect, useState } from 'react';
 import { Download, HardDrive, Plus, RefreshCw, Trash2, Upload, X } from 'lucide-react';
 import {
   AppSettings,
-  BUCKET_META,
-  BucketType,
+  BucketConfig,
   CURRENCY_PRESETS,
   CurrencyConfig,
+  getBucketTheme,
 } from '../types/finance';
-import { BUCKETS } from '../lib/calculations';
+import { FALLBACK_CATEGORIES } from '../lib/seed';
 import { getStoragePath } from '../lib/storage';
 
 interface SettingsViewProps {
+  buckets: BucketConfig[];
   settings: AppSettings;
   onUpdateSettings: (next: AppSettings) => void;
   onExportJson: () => void;
@@ -21,6 +22,7 @@ interface SettingsViewProps {
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
+  buckets,
   settings,
   onUpdateSettings,
   onExportJson,
@@ -30,11 +32,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onResetAllData,
 }) => {
   const [storagePath, setStoragePath] = useState('Loading...');
-  const [newCatInputs, setNewCatInputs] = useState<Record<BucketType, string>>({
-    mandatory: '',
-    fun: '',
-    savings: '',
-  });
+  const [newCatInputs, setNewCatInputs] = useState<Record<string, string>>({});
   const [confirmReset, setConfirmReset] = useState(false);
 
   useEffect(() => {
@@ -45,26 +43,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     onUpdateSettings({ ...settings, currency: curr });
   };
 
-  const handleAddCategory = (bucket: BucketType) => {
-    const val = newCatInputs[bucket].trim();
-    if (!val || settings.categories[bucket].includes(val)) return;
+  const handleAddCategory = (bucketId: string) => {
+    const val = (newCatInputs[bucketId] || '').trim();
+    const existing = settings.categories[bucketId] || FALLBACK_CATEGORIES;
+    if (!val || existing.includes(val)) return;
     onUpdateSettings({
       ...settings,
       categories: {
         ...settings.categories,
-        [bucket]: [...settings.categories[bucket], val],
+        [bucketId]: [...existing, val],
       },
     });
-    setNewCatInputs((prev) => ({ ...prev, [bucket]: '' }));
+    setNewCatInputs((prev) => ({ ...prev, [bucketId]: '' }));
   };
 
-  const handleRemoveCategory = (bucket: BucketType, cat: string) => {
-    if (settings.categories[bucket].length <= 1) return;
+  const handleRemoveCategory = (bucketId: string, cat: string) => {
+    const existing = settings.categories[bucketId] || FALLBACK_CATEGORIES;
+    if (existing.length <= 1) return;
     onUpdateSettings({
       ...settings,
       categories: {
         ...settings.categories,
-        [bucket]: settings.categories[bucket].filter((c) => c !== cat),
+        [bucketId]: existing.filter((c) => c !== cat),
       },
     });
   };
@@ -100,27 +100,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Categories */}
+      {/* Categories for all active buckets */}
       <div className="border border-neutral-300 bg-white">
         <div className="border-b border-neutral-300 bg-neutral-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-neutral-800">
-          Bucket Categories
+          Categories Per Budget Split
         </div>
         <div className="grid grid-cols-1 gap-4 p-3 lg:grid-cols-3">
-          {BUCKETS.map((bucket) => {
-            const meta = BUCKET_META[bucket];
+          {buckets.map((bucket) => {
+            const theme = getBucketTheme(bucket.color);
+            const cats = settings.categories[bucket.id] || FALLBACK_CATEGORIES;
             return (
-              <div key={bucket} className="border border-neutral-300 bg-white p-3">
+              <div key={bucket.id} className="border border-neutral-300 bg-white p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className={`rounded px-2 py-0.5 text-xs font-bold ${meta.badgeClass}`}>
-                    {meta.label}
+                  <span className={`rounded px-2 py-0.5 text-xs font-bold ${theme.badgeClass}`}>
+                    {bucket.name}
                   </span>
                   <span className="font-mono text-[11px] text-neutral-500">
-                    {settings.categories[bucket].length} items
+                    {cats.length} items
                   </span>
                 </div>
 
                 <div className="mb-3 flex flex-wrap gap-1.5">
-                  {settings.categories[bucket].map((cat) => (
+                  {cats.map((cat) => (
                     <span
                       key={cat}
                       className="inline-flex items-center gap-1 rounded border border-neutral-300 bg-neutral-50 px-2 py-0.5 text-xs text-neutral-800"
@@ -128,7 +129,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       {cat}
                       <button
                         type="button"
-                        onClick={() => handleRemoveCategory(bucket, cat)}
+                        onClick={() => handleRemoveCategory(bucket.id, cat)}
                         className="text-neutral-400 hover:text-red-600"
                       >
                         <X className="h-3 w-3" />
@@ -140,17 +141,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div className="flex gap-1.5">
                   <input
                     type="text"
-                    value={newCatInputs[bucket]}
+                    value={newCatInputs[bucket.id] || ''}
                     onChange={(e) =>
-                      setNewCatInputs((prev) => ({ ...prev, [bucket]: e.target.value }))
+                      setNewCatInputs((prev) => ({ ...prev, [bucket.id]: e.target.value }))
                     }
-                    onKeyDown={(e) => e.key === 'Enter' && handleAddCategory(bucket)}
-                    placeholder={`Add ${meta.shortLabel} category...`}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddCategory(bucket.id)}
+                    placeholder={`Add ${bucket.name} category...`}
                     className="h-8 flex-1 rounded border border-neutral-300 bg-white px-2.5 text-xs text-neutral-900 outline-none focus:border-green-600 focus:bg-yellow-50/40"
                   />
                   <button
                     type="button"
-                    onClick={() => handleAddCategory(bucket)}
+                    onClick={() => handleAddCategory(bucket.id)}
                     className="flex h-8 w-8 items-center justify-center rounded bg-green-600 text-white hover:bg-green-700"
                   >
                     <Plus className="h-4 w-4" />

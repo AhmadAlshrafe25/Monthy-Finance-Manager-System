@@ -1,7 +1,6 @@
 import {
+  BucketConfig,
   BucketMetrics,
-  BucketSplit,
-  BucketType,
   CategorySummary,
   DailyPoint,
   ExpenseEntry,
@@ -9,8 +8,6 @@ import {
   MonthSummary,
   MultiMonthPoint,
 } from '../types/finance';
-
-export const BUCKETS: BucketType[] = ['mandatory', 'fun', 'savings'];
 
 export function roundMoney(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -30,47 +27,63 @@ export function getMonthLabel(monthKey: string): string {
   return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
-export function normalizeSplit(split: BucketSplit): BucketSplit {
-  const total = split.mandatory + split.fun + split.savings;
-  if (total === 100) return split;
-  if (total <= 0) return { mandatory: 50, fun: 30, savings: 20 };
-  const mandatory = Math.round((split.mandatory / total) * 100);
-  const fun = Math.round((split.fun / total) * 100);
-  const savings = 100 - mandatory - fun;
-  return { mandatory, fun, savings };
+export function normalizeBucketsSplit(buckets: BucketConfig[]): BucketConfig[] {
+  if (buckets.length === 0) return [];
+  const total = buckets.reduce((sum, b) => sum + Math.max(0, b.splitPercent), 0);
+  if (total === 100) return buckets;
+  if (total <= 0) {
+    const even = Math.floor(100 / buckets.length);
+    const rem = 100 - even * buckets.length;
+    return buckets.map((b, i) => ({
+      ...b,
+      splitPercent: even + (i === 0 ? rem : 0),
+    }));
+  }
+
+  let running = 0;
+  return buckets.map((b, idx) => {
+    if (idx === buckets.length - 1) {
+      return { ...b, splitPercent: Math.max(0, 100 - running) };
+    }
+    const pct = Math.round((Math.max(0, b.splitPercent) / total) * 100);
+    running += pct;
+    return { ...b, splitPercent: pct };
+  });
 }
 
-export function calculateAllocatedByBucket(month: MonthData): Record<BucketType, number> {
-  const split = normalizeSplit(month.split);
-  const allocated: Record<BucketType, number> = {
-    mandatory: 0,
-    fun: 0,
-    savings: 0,
-  };
+export function calculateAllocatedByBucket(month: MonthData): Record<string, number> {
+  const allocated: Record<string, number> = {};
+  for (const b of month.buckets) {
+    allocated[b.id] = 0;
+  }
+
+  if (month.buckets.length === 0) return allocated;
+
+  const totalPct = month.buckets.reduce((s, b) => s + Math.max(0, b.splitPercent), 0);
+  const divisor = totalPct > 0 ? totalPct : 100;
 
   for (const income of month.incomes) {
-    const amt = Math.max(0, Number(income.amount) || 0);
-    if (income.allocationMode === 'split') {
-      allocated.mandatory += amt * (split.mandatory / 100);
-      allocated.fun += amt * (split.fun / 100);
-      allocated.savings += amt * (split.savings / 100);
+    // Allow negative numbers naturally (e.g. -35 for salary cuts/deductions)
+    const amt = Number(income.amount) || 0;
+    if (income.allocationMode === 'split' || allocated[income.allocationMode] === undefined) {
+      for (const b of month.buckets) {
+        const share = totalPct > 0 ? Math.max(0, b.splitPercent) / divisor : 1 / month.buckets.length;
+        allocated[b.id] += amt * share;
+      }
     } else {
       allocated[income.allocationMode] += amt;
     }
   }
 
-  return {
-    mandatory: roundMoney(allocated.mandatory),
-    fun: roundMoney(allocated.fun),
-    savings: roundMoney(allocated.savings),
-  };
+  for (const id of Object.keys(allocated)) {
+    allocated[id] = roundMoney(allocated[id]);
+  }
+  return allocated;
 }
 
 export function calculateMonthSummary(month: MonthData, referenceDate: Date = new Date()): MonthSummary {
-  const split = normalizeSplit(month.split);
   const daysInMonth = getDaysInMonth(month.monthKey);
 
-  // Determine elapsed & remaining days relative to referenceDate
   const [yearStr, monthStr] = month.monthKey.split('-');
   const y = Number(yearStr);
   const m = Number(monthStr);
@@ -86,58 +99,75 @@ export function calculateMonthSummary(month: MonthData, referenceDate: Date = ne
   } else if (y > refY || (y === refY && m > refM)) {
     daysElapsed = 1;
     daysRemaining = daysInMonth;
-  } else {
-    daysElapsed = daysInMonth;
-    daysRemaining = 0;
   }
 
-  // Income totals
+  // Income totals (positive inflows & negative salary cuts)
   let totalIncome = 0;
+  let grossIncome = 0;
   let salaryIncome = 0;
   let extraIncome = 0;
+  let salaryCuts = 0;
 
   for (const inc of month.incomes) {
-    const amt = Math.max(0, Number(inc.amount) || 0);
+    const amt = Number(inc.amount) || 0;
     totalIncome += amt;
-    if (inc.type === 'salary') {
-      salaryIncome += amt;
+    if (amt < 0) {
+      salaryCuts += Math.abs(amt);
     } else {
-      extraIncome += amt;
+      grossIncome += amt;
+      if (inc.type === 'salary') salaryIncome += amt;
+      else extraIncome += amt;
     }
   }
+
   totalIncome = roundMoney(totalIncome);
+  grossIncome = roundMoney(grossIncome);
   salaryIncome = roundMoney(salaryIncome);
   extraIncome = roundMoney(extraIncome);
+  salaryCuts = roundMoney(salaryCuts);
 
-  // Allocated per bucket
   const allocatedMap = calculateAllocatedByBucket(month);
 
-  // Expense aggregations
-  const spentMap: Record<BucketType, number> = { mandatory: 0, fun: 0, savings: 0 };
-  const paidMap: Record<BucketType, number> = { mandatory: 0, fun: 0, savings: 0 };
-  const scheduledMap: Record<BucketType, number> = { mandatory: 0, fun: 0, savings: 0 };
-  const countMap: Record<BucketType, number> = { mandatory: 0, fun: 0, savings: 0 };
+  const spentMap: Record<string, number> = {};
+  const paidMap: Record<string, number> = {};
+  const scheduledMap: Record<string, number> = {};
+  const countMap: Record<string, number> = {};
+  const bucketLookup: Record<string, BucketConfig> = {};
 
-  const categoryMap = new Map<string, { bucket: BucketType; total: number; count: number }>();
+  for (const b of month.buckets) {
+    spentMap[b.id] = 0;
+    paidMap[b.id] = 0;
+    scheduledMap[b.id] = 0;
+    countMap[b.id] = 0;
+    bucketLookup[b.id] = b;
+  }
+
+  const categoryMap = new Map<string, { bucketId: string; total: number; count: number }>();
   let largestExpense: ExpenseEntry | null = null;
+  let totalSpent = 0;
+  let paidSpent = 0;
+  let scheduledSpent = 0;
 
   for (const exp of month.expenses) {
     const amt = Math.max(0, Number(exp.amount) || 0);
-    spentMap[exp.bucket] += amt;
-    countMap[exp.bucket] += 1;
-    if (exp.status === 'paid') {
-      paidMap[exp.bucket] += amt;
-    } else {
-      scheduledMap[exp.bucket] += amt;
+    totalSpent += amt;
+    if (exp.status === 'paid') paidSpent += amt;
+    else scheduledSpent += amt;
+
+    if (spentMap[exp.bucket] !== undefined) {
+      spentMap[exp.bucket] += amt;
+      countMap[exp.bucket] += 1;
+      if (exp.status === 'paid') paidMap[exp.bucket] += amt;
+      else scheduledMap[exp.bucket] += amt;
     }
 
-    const catKey = `${exp.bucket}::${exp.category}`;
+    const catKey = `${exp.bucket}::${exp.category || 'General'}`;
     const existing = categoryMap.get(catKey);
     if (existing) {
       existing.total += amt;
       existing.count += 1;
     } else {
-      categoryMap.set(catKey, { bucket: exp.bucket, total: amt, count: 1 });
+      categoryMap.set(catKey, { bucketId: exp.bucket, total: amt, count: 1 });
     }
 
     if (!largestExpense || amt > largestExpense.amount) {
@@ -145,56 +175,54 @@ export function calculateMonthSummary(month: MonthData, referenceDate: Date = ne
     }
   }
 
-  const buckets = {} as Record<BucketType, BucketMetrics>;
-  for (const b of BUCKETS) {
-    const allocated = allocatedMap[b];
-    const spent = roundMoney(spentMap[b]);
-    const remaining = roundMoney(allocated - spent);
-    const utilizationPct = allocated > 0 ? roundMoney((spent / allocated) * 100) : spent > 0 ? 100 : 0;
+  totalSpent = roundMoney(totalSpent);
+  paidSpent = roundMoney(paidSpent);
+  scheduledSpent = roundMoney(scheduledSpent);
+  const totalRemaining = roundMoney(totalIncome - totalSpent);
 
-    buckets[b] = {
-      bucket: b,
-      splitPercent: split[b],
+  const buckets: BucketMetrics[] = month.buckets.map((b) => {
+    const allocated = allocatedMap[b.id] ?? 0;
+    const spent = roundMoney(spentMap[b.id] ?? 0);
+    const remaining = roundMoney(allocated - spent);
+    const utilizationPct =
+      allocated > 0 ? roundMoney((spent / allocated) * 100) : spent > 0 ? 100 : 0;
+
+    return {
+      bucketId: b.id,
+      name: b.name,
+      color: b.color,
+      splitPercent: b.splitPercent,
       allocated,
       spent,
-      paidSpent: roundMoney(paidMap[b]),
-      scheduledSpent: roundMoney(scheduledMap[b]),
+      paidSpent: roundMoney(paidMap[b.id] ?? 0),
+      scheduledSpent: roundMoney(scheduledMap[b.id] ?? 0),
       remaining,
       utilizationPct,
       isOverBudget: remaining < 0,
-      transactionCount: countMap[b],
+      transactionCount: countMap[b.id] ?? 0,
     };
+  });
+
+  const bucketMap: Record<string, BucketMetrics> = {};
+  for (const bm of buckets) {
+    bucketMap[bm.bucketId] = bm;
   }
 
-  const totalSpent = roundMoney(spentMap.mandatory + spentMap.fun + spentMap.savings);
-  const paidSpent = roundMoney(paidMap.mandatory + paidMap.fun + paidMap.savings);
-  const scheduledSpent = roundMoney(scheduledMap.mandatory + scheduledMap.fun + scheduledMap.savings);
-  const totalRemaining = roundMoney(totalIncome - totalSpent);
-
-  const savingsAllocated = buckets.savings.allocated;
-  const savingsActual = buckets.savings.spent;
-  const effectiveSavingsRatePct = totalIncome > 0 ? roundMoney((savingsAllocated / totalIncome) * 100) : 0;
-  // Total wealth kept: savings allocation + any unspent mandatory/fun surplus (or minus overspend)
-  const netSavedOrLeft = roundMoney(savingsAllocated + Math.min(0, buckets.mandatory.remaining) + Math.min(0, buckets.fun.remaining));
-  const savingsRatePct = totalIncome > 0 ? roundMoney((Math.max(0, netSavedOrLeft) / totalIncome) * 100) : 0;
-
-  // Burn rate based on mandatory + fun consumption (non-savings spending) or total fees cut
   const burnRatePerDay = daysElapsed > 0 ? roundMoney(totalSpent / daysElapsed) : 0;
   const projectedTotalSpent =
     daysRemaining > 0 ? roundMoney(burnRatePerDay * daysInMonth) : totalSpent;
   const projectedEndBalance = roundMoney(totalIncome - projectedTotalSpent);
 
-  const safeDailyFunSpend =
-    daysRemaining > 0 ? roundMoney(Math.max(0, buckets.fun.remaining) / daysRemaining) : 0;
-
-  // Categories pivot
   const categories: CategorySummary[] = Array.from(categoryMap.entries())
     .map(([key, val]) => {
-      const category = key.split('::')[1] || 'Uncategorized';
-      const bucketAllocated = buckets[val.bucket].allocated;
+      const category = key.split('::')[1] || 'General';
+      const bCfg = bucketLookup[val.bucketId];
+      const bucketAllocated = bucketMap[val.bucketId]?.allocated ?? 0;
       return {
         category,
-        bucket: val.bucket,
+        bucketId: val.bucketId,
+        bucketName: bCfg?.name || val.bucketId,
+        bucketColor: bCfg?.color || 'green',
         total: roundMoney(val.total),
         count: val.count,
         average: roundMoney(val.total / val.count),
@@ -204,65 +232,46 @@ export function calculateMonthSummary(month: MonthData, referenceDate: Date = ne
     })
     .sort((a, b) => b.total - a.total);
 
-  // Daily cumulative burn-down series
-  const dailyBuckets: Record<number, { total: number; mandatory: number; fun: number; savings: number }> = {};
+  // Daily cumulative burn-down
+  const dailyMap: Record<number, number> = {};
   for (const exp of month.expenses) {
     const dayPart = Number(exp.date.split('-')[2]);
     const day = dayPart >= 1 && dayPart <= daysInMonth ? dayPart : 1;
-    if (!dailyBuckets[day]) {
-      dailyBuckets[day] = { total: 0, mandatory: 0, fun: 0, savings: 0 };
-    }
-    const amt = Math.max(0, Number(exp.amount) || 0);
-    dailyBuckets[day].total += amt;
-    dailyBuckets[day][exp.bucket] += amt;
+    dailyMap[day] = (dailyMap[day] || 0) + Math.max(0, Number(exp.amount) || 0);
   }
 
   const dailySeries: DailyPoint[] = [];
-  let cumTotal = 0;
-  let cumMandatory = 0;
-  let cumFun = 0;
-  let cumSavings = 0;
-
+  let cum = 0;
   for (let day = 1; day <= daysInMonth; day++) {
-    const d = dailyBuckets[day];
-    const dailySpent = d ? roundMoney(d.total) : 0;
-    cumTotal = roundMoney(cumTotal + dailySpent);
-    cumMandatory = roundMoney(cumMandatory + (d ? d.mandatory : 0));
-    cumFun = roundMoney(cumFun + (d ? d.fun : 0));
-    cumSavings = roundMoney(cumSavings + (d ? d.savings : 0));
-
+    const dailySpent = roundMoney(dailyMap[day] || 0);
+    cum = roundMoney(cum + dailySpent);
     dailySeries.push({
       day,
       date: `${month.monthKey}-${String(day).padStart(2, '0')}`,
       dailySpent,
-      cumulativeSpent: cumTotal,
-      remainingBudget: roundMoney(totalIncome - cumTotal),
-      mandatoryCum: cumMandatory,
-      funCum: cumFun,
-      savingsCum: cumSavings,
+      cumulativeSpent: cum,
+      remainingBudget: roundMoney(totalIncome - cum),
     });
   }
 
   return {
     monthKey: month.monthKey,
     totalIncome,
+    grossIncome,
     salaryIncome,
     extraIncome,
+    salaryCuts,
     totalSpent,
     paidSpent,
     scheduledSpent,
     totalRemaining,
-    savingsAllocated,
-    savingsActual,
-    savingsRatePct,
-    effectiveSavingsRatePct,
     burnRatePerDay,
     projectedEndBalance,
-    safeDailyFunSpend,
     daysElapsed,
     daysRemaining,
     daysInMonth,
     buckets,
+    bucketMap,
     categories,
     dailySeries,
     largestExpense,
@@ -274,15 +283,17 @@ export function calculateMultiMonthTrends(months: Record<string, MonthData>): Mu
   const keys = Object.keys(months).sort();
   return keys.map((key) => {
     const summary = calculateMonthSummary(months[key]);
+    const byBucket: Record<string, number> = {};
+    for (const b of summary.buckets) {
+      byBucket[b.bucketId] = b.spent;
+    }
     return {
       monthKey: key,
       label: getMonthLabel(key),
       income: summary.totalIncome,
-      mandatory: summary.buckets.mandatory.spent,
-      fun: summary.buckets.fun.spent,
-      savings: summary.buckets.savings.spent,
       totalSpent: summary.totalSpent,
       netLeft: summary.totalRemaining,
+      byBucket,
     };
   });
 }
@@ -315,7 +326,7 @@ export function cloneRecurringForNewMonth(
 
   return {
     monthKey: targetMonthKey,
-    split: { ...sourceMonth.split },
+    buckets: sourceMonth.buckets.map((b) => ({ ...b })),
     incomes,
     expenses,
   };

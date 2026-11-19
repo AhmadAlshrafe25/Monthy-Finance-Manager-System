@@ -3,39 +3,53 @@ import {
   calculateAllocatedByBucket,
   calculateMonthSummary,
   cloneRecurringForNewMonth,
-  normalizeSplit,
+  normalizeBucketsSplit,
 } from './calculations';
+import { migrateStore } from './seed';
 import { MonthData } from '../types/finance';
 
-describe('Financial Calculation Engine', () => {
+describe('Dynamic Budget & Salary Cut Calculation Engine', () => {
   const sampleMonth: MonthData = {
     monthKey: '2026-11',
-    split: { mandatory: 50, fun: 30, savings: 20 },
+    buckets: [
+      { id: 'mandatory', name: 'Mandatory', color: 'red', splitPercent: 50 },
+      { id: 'fun', name: 'Fun Spending', color: 'yellow', splitPercent: 30 },
+      { id: 'savings', name: 'Savings / Debt', color: 'green', splitPercent: 20 },
+    ],
     incomes: [
       {
         id: 'i1',
         date: '2026-11-01',
-        title: 'Salary',
+        title: 'Monthly Salary',
         type: 'salary',
-        amount: 2000,
+        amount: 1000,
         allocationMode: 'split',
         recurring: true,
       },
       {
         id: 'i2',
+        date: '2026-11-01',
+        title: 'Social Security Deduction',
+        type: 'cut',
+        amount: -100,
+        allocationMode: 'split',
+        recurring: true,
+      },
+      {
+        id: 'i3',
         date: '2026-11-10',
-        title: 'Side Hustle',
+        title: 'Extra Freelance',
         type: 'extra',
-        amount: 500,
+        amount: 200,
         allocationMode: 'split',
         recurring: false,
       },
       {
-        id: 'i3',
+        id: 'i4',
         date: '2026-11-12',
-        title: 'Debt Bonus',
+        title: 'Direct Savings Bonus',
         type: 'bonus',
-        amount: 200,
+        amount: 100,
         allocationMode: 'savings',
         recurring: false,
       },
@@ -47,93 +61,112 @@ describe('Financial Calculation Engine', () => {
         title: 'Rent',
         bucket: 'mandatory',
         category: 'Rent / Housing',
-        amount: 800,
+        amount: 400,
         status: 'paid',
         recurring: true,
       },
       {
         id: 'e2',
         date: '2026-11-05',
-        title: 'Dining',
+        title: 'Coffee',
         bucket: 'fun',
-        category: 'Dining Out',
-        amount: 300,
-        status: 'paid',
-      },
-      {
-        id: 'e3',
-        date: '2026-11-06',
-        title: 'Savings Transfer',
-        bucket: 'savings',
-        category: 'Emergency Fund',
-        amount: 500,
+        category: 'Coffee & Snacks',
+        amount: 50,
         status: 'paid',
       },
     ],
   };
 
-  it('splits salary and extra income accurately and supports direct bucket allocation', () => {
+  it('deducts negative salary cuts naturally before splitting across dynamic buckets', () => {
+    // Split income = 1000 - 100 + 200 = 1100
+    // Mandatory 50% = 550, Fun 30% = 330, Savings 20% = 220 + 100 direct = 320
     const allocated = calculateAllocatedByBucket(sampleMonth);
-    // Split income = 2000 + 500 = 2500 -> Mandatory 1250, Fun 750, Savings 500 + 200 direct = 700
-    expect(allocated.mandatory).toBe(1250);
-    expect(allocated.fun).toBe(750);
-    expect(allocated.savings).toBe(700);
+    expect(allocated.mandatory).toBe(550);
+    expect(allocated.fun).toBe(330);
+    expect(allocated.savings).toBe(320);
   });
 
-  it('cuts expenses from assigned buckets immediately and calculates remaining balances', () => {
+  it('tracks gross income, salary cuts, net income, and remaining balances per bucket', () => {
     const summary = calculateMonthSummary(sampleMonth, new Date(2026, 10, 15));
-    expect(summary.totalIncome).toBe(2700);
-    expect(summary.salaryIncome).toBe(2000);
-    expect(summary.extraIncome).toBe(700);
-    expect(summary.totalSpent).toBe(1600);
-    expect(summary.totalRemaining).toBe(1100);
-
-    expect(summary.buckets.mandatory.remaining).toBe(450);
-    expect(summary.buckets.mandatory.utilizationPct).toBe(64);
-    expect(summary.buckets.fun.remaining).toBe(450);
-    expect(summary.buckets.fun.utilizationPct).toBe(40);
-    expect(summary.buckets.savings.remaining).toBe(200);
-    expect(summary.buckets.savings.isOverBudget).toBe(false);
+    expect(summary.grossIncome).toBe(1300);
+    expect(summary.salaryCuts).toBe(100);
+    expect(summary.totalIncome).toBe(1200);
+    expect(summary.totalSpent).toBe(450);
+    expect(summary.totalRemaining).toBe(750);
+    expect(summary.bucketMap.mandatory.remaining).toBe(150);
+    expect(summary.bucketMap.fun.remaining).toBe(280);
+    expect(summary.bucketMap.savings.remaining).toBe(320);
   });
 
-  it('flags overspending when fees exceed bucket allocation', () => {
-    const overMonth: MonthData = {
+  it('supports adding custom 4th/5th buckets dynamically', () => {
+    const customMonth: MonthData = {
       ...sampleMonth,
+      buckets: [
+        { id: 'mandatory', name: 'Mandatory', color: 'red', splitPercent: 40 },
+        { id: 'fun', name: 'Fun', color: 'yellow', splitPercent: 20 },
+        { id: 'savings', name: 'Savings', color: 'green', splitPercent: 20 },
+        { id: 'car', name: 'Car Fund', color: 'blue', splitPercent: 20 },
+      ],
       expenses: [
         ...sampleMonth.expenses,
         {
-          id: 'e4',
-          date: '2026-11-14',
-          title: 'Big Concert Trip',
-          bucket: 'fun',
-          category: 'Travel',
-          amount: 600,
+          id: 'e3',
+          date: '2026-11-11',
+          title: 'Oil Change',
+          bucket: 'car',
+          category: 'Maintenance',
+          amount: 45,
           status: 'paid',
         },
       ],
     };
 
-    const summary = calculateMonthSummary(overMonth, new Date(2026, 10, 15));
-    expect(summary.buckets.fun.spent).toBe(900);
-    expect(summary.buckets.fun.remaining).toBe(-150);
-    expect(summary.buckets.fun.isOverBudget).toBe(true);
-    expect(summary.buckets.fun.utilizationPct).toBe(120);
+    const summary = calculateMonthSummary(customMonth, new Date(2026, 10, 15));
+    expect(summary.buckets).toHaveLength(4);
+    expect(summary.bucketMap.car.allocated).toBe(220);
+    expect(summary.bucketMap.car.spent).toBe(45);
+    expect(summary.bucketMap.car.remaining).toBe(175);
   });
 
-  it('normalizes splits that do not total 100', () => {
-    const norm = normalizeSplit({ mandatory: 1, fun: 1, savings: 2 });
-    expect(norm.mandatory + norm.fun + norm.savings).toBe(100);
-    expect(norm.savings).toBe(50);
+  it('normalizes arbitrary number of buckets to total 100%', () => {
+    const normalized = normalizeBucketsSplit([
+      { id: 'a', name: 'A', color: 'red', splitPercent: 10 },
+      { id: 'b', name: 'B', color: 'blue', splitPercent: 10 },
+      { id: 'c', name: 'C', color: 'green', splitPercent: 20 },
+    ]);
+    const sum = normalized.reduce((s, b) => s + b.splitPercent, 0);
+    expect(sum).toBe(100);
+    expect(normalized[2].splitPercent).toBe(50);
   });
 
-  it('clones only recurring incomes and expenses into a new month', () => {
-    const nextMonth = cloneRecurringForNewMonth(sampleMonth, '2026-12');
-    expect(nextMonth.monthKey).toBe('2026-12');
-    expect(nextMonth.incomes).toHaveLength(1);
-    expect(nextMonth.incomes[0].title).toBe('Salary');
-    expect(nextMonth.incomes[0].date).toBe('2026-12-01');
-    expect(nextMonth.expenses).toHaveLength(1);
-    expect(nextMonth.expenses[0].title).toBe('Rent');
-    expect(nextMonth.expenses[0].status).toBe('scheduled');
+  it('migrates v1 fixed-3-bucket store into v2 dynamic buckets without losing data', () => {
+    const v1 = {
+      version: 1,
+      activeMonth: '2026-11',
+      settings: { currency: { code: 'JOD', symbol: 'JD ', decimals: 2 } },
+      months: {
+        '2026-11': {
+          monthKey: '2026-11',
+          split: { mandatory: 60, fun: 20, savings: 20 },
+          incomes: [
+            { id: 'i1', date: '2026-11-01', title: 'Monthly Salary', type: 'salary', amount: 420, allocationMode: 'split', recurring: true },
+          ],
+          expenses: [],
+        },
+      },
+    };
+    const migrated = migrateStore(v1);
+    expect(migrated?.version).toBe(2);
+    expect(migrated?.months['2026-11'].buckets).toHaveLength(3);
+    expect(migrated?.months['2026-11'].buckets[0].splitPercent).toBe(60);
+    expect(migrated?.months['2026-11'].incomes[0].amount).toBe(420);
+  });
+
+  it('clones recurring items and custom buckets into next month', () => {
+    const next = cloneRecurringForNewMonth(sampleMonth, '2026-12');
+    expect(next.buckets).toHaveLength(3);
+    expect(next.incomes).toHaveLength(2); // Salary + recurring salary cut
+    expect(next.expenses).toHaveLength(1);
+    expect(next.expenses[0].status).toBe('scheduled');
   });
 });

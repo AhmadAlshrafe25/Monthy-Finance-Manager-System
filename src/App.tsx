@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BarChart3, Settings, Wallet } from 'lucide-react';
+import { BarChart3, Cloud, Settings, Wallet } from 'lucide-react';
 import {
   ActiveSheet,
   AppSettings,
@@ -37,6 +37,19 @@ import {
   loadStore,
   saveStore,
 } from './lib/storage';
+import {
+  CloudStatus,
+  EMPTY_CLOUD_STATUS,
+  connectCloudFolder,
+  connectGoogleDrive,
+  connectOneDrive,
+  disconnectCloud,
+  getCloudStatus,
+  pickCloudFolder,
+  pullCloudBackup,
+  pushCloudBackup,
+  setCloudAutoSync,
+} from './lib/cloud';
 import { ExcelHeader } from './components/ExcelHeader';
 import { SalaryAndSplitSheet } from './components/SalaryAndSplitSheet';
 import { BucketExpenseGrid } from './components/BucketExpenseGrid';
@@ -49,16 +62,38 @@ export const App: React.FC = () => {
   const [activeSheet, setActiveSheet] = useState<ActiveSheet>('sheet');
   const [visibleBucketIds, setVisibleBucketIds] = useState<string[]>([]);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<CloudStatus>(EMPTY_CLOUD_STATUS);
+  const [cloudSyncing, setCloudSyncing] = useState(false);
 
   const salaryInputRef = useRef<HTMLInputElement | null>(null);
   const firstTableInputRef = useRef<HTMLInputElement | null>(null);
   const expenseSearchRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const autoSyncTimerRef = useRef<number | null>(null);
+  const cloudStatusRef = useRef<CloudStatus>(EMPTY_CLOUD_STATUS);
+
+  useEffect(() => {
+    cloudStatusRef.current = cloudStatus;
+  }, [cloudStatus]);
 
   const showToast = useCallback((text: string, onUndo?: () => void) => {
     if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast({ id: String(Date.now()), text, onUndo });
     toastTimerRef.current = window.setTimeout(() => setToast(null), 4500);
+  }, []);
+
+  const scheduleCloudAutoSync = useCallback((nextStore: FinanceStore) => {
+    const st = cloudStatusRef.current;
+    if (!st.connected || !st.autoSync) return;
+    if (autoSyncTimerRef.current) window.clearTimeout(autoSyncTimerRef.current);
+    autoSyncTimerRef.current = window.setTimeout(async () => {
+      setCloudSyncing(true);
+      const res = await pushCloudBackup(nextStore);
+      setCloudSyncing(false);
+      if (res.ok && res.status) {
+        setCloudStatus(res.status);
+      }
+    }, 1800);
   }, []);
 
   useEffect(() => {
@@ -75,19 +110,26 @@ export const App: React.FC = () => {
         saveStore(starter);
       }
     });
+    getCloudStatus().then((st) => {
+      if (mounted) setCloudStatus(st);
+    });
     return () => {
       mounted = false;
     };
   }, []);
 
-  const commitStore = useCallback((updater: (prev: FinanceStore) => FinanceStore) => {
-    setStore((prev) => {
-      if (!prev) return prev;
-      const next = updater(prev);
-      saveStore(next);
-      return next;
-    });
-  }, []);
+  const commitStore = useCallback(
+    (updater: (prev: FinanceStore) => FinanceStore) => {
+      setStore((prev) => {
+        if (!prev) return prev;
+        const next = updater(prev);
+        saveStore(next);
+        scheduleCloudAutoSync(next);
+        return next;
+      });
+    },
+    [scheduleCloudAutoSync]
+  );
 
   const activeMonthData: MonthData | null = useMemo(() => {
     if (!store) return null;
@@ -458,11 +500,13 @@ export const App: React.FC = () => {
       const converted = convertStoreCurrency(store, targetCurrency);
       setStore(converted);
       saveStore(converted);
+      scheduleCloudAutoSync(converted);
       showToast(
         `Converted ${fromCode} → ${toCode} (1 ${fromCode} = ${rate.toFixed(3)} ${toCode})`,
         () => {
           setStore(prevSnapshot);
           saveStore(prevSnapshot);
+          scheduleCloudAutoSync(prevSnapshot);
         }
       );
     } else {
@@ -514,7 +558,126 @@ export const App: React.FC = () => {
     const demo = createStarterStore();
     setStore(demo);
     saveStore(demo);
+    scheduleCloudAutoSync(demo);
     showToast('Loaded sample demo sheet');
+  };
+
+  // Cloud Sync Handlers
+  const handlePickCloudFolder = async () => {
+    const res = await pickCloudFolder();
+    if (res.canceled) return;
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      showToast('Cloud folder linked! Pushing backup...');
+      setCloudSyncing(true);
+      const pushRes = await pushCloudBackup(store);
+      setCloudSyncing(false);
+      if (pushRes.ok && pushRes.status) {
+        setCloudStatus(pushRes.status);
+        showToast('Synced to cloud folder');
+      } else if (pushRes.error) {
+        showToast(`Sync error: ${pushRes.error}`);
+      }
+    } else if (res.error) {
+      showToast(res.error);
+    }
+  };
+
+  const handleConnectCloudFolder = async (dir: string) => {
+    const res = await connectCloudFolder(dir);
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      setCloudSyncing(true);
+      const pushRes = await pushCloudBackup(store);
+      setCloudSyncing(false);
+      if (pushRes.ok && pushRes.status) {
+        setCloudStatus(pushRes.status);
+        showToast('Connected & synced to cloud folder');
+      }
+    } else if (res.error) {
+      showToast(res.error);
+    }
+  };
+
+  const handleConnectGoogle = async (clientId: string, clientSecret: string) => {
+    const res = await connectGoogleDrive(clientId, clientSecret);
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      showToast(`Connected Google Drive (${res.status.accountEmail})`);
+      setCloudSyncing(true);
+      const pushRes = await pushCloudBackup(store);
+      setCloudSyncing(false);
+      if (pushRes.ok && pushRes.status) {
+        setCloudStatus(pushRes.status);
+      }
+    } else {
+      showToast(res.error || 'Google Drive connection failed');
+    }
+  };
+
+  const handleConnectOneDrive = async (clientId: string) => {
+    const res = await connectOneDrive(clientId);
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      showToast(`Connected OneDrive (${res.status.accountEmail})`);
+      setCloudSyncing(true);
+      const pushRes = await pushCloudBackup(store);
+      setCloudSyncing(false);
+      if (pushRes.ok && pushRes.status) {
+        setCloudStatus(pushRes.status);
+      }
+    } else {
+      showToast(res.error || 'OneDrive connection failed');
+    }
+  };
+
+  const handleCloudPush = async () => {
+    setCloudSyncing(true);
+    const res = await pushCloudBackup(store);
+    setCloudSyncing(false);
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      showToast('Pushed latest workbook to cloud');
+    } else {
+      showToast(res.error || 'Cloud push failed');
+    }
+  };
+
+  const handleCloudPull = async () => {
+    const prevSnapshot = store;
+    setCloudSyncing(true);
+    const res = await pullCloudBackup();
+    setCloudSyncing(false);
+    if (res.ok && res.data) {
+      const migrated = migrateStore(res.data);
+      if (migrated) {
+        setStore(migrated);
+        saveStore(migrated);
+        if (res.status) setCloudStatus(res.status);
+        showToast('Pulled workbook from cloud', () => {
+          setStore(prevSnapshot);
+          saveStore(prevSnapshot);
+        });
+      }
+    } else {
+      showToast(res.error || 'Cloud pull failed');
+    }
+  };
+
+  const handleCloudDisconnect = async () => {
+    const res = await disconnectCloud();
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      showToast('Disconnected cloud sync');
+    }
+  };
+
+  const handleCloudToggleAutoSync = async (enabled: boolean) => {
+    const res = await setCloudAutoSync(enabled);
+    if (res.ok && res.status) {
+      setCloudStatus(res.status);
+      showToast(enabled ? 'Cloud Auto-Sync enabled' : 'Cloud Auto-Sync paused');
+    }
   };
 
   return (
@@ -589,6 +752,8 @@ export const App: React.FC = () => {
               buckets={activeMonthData.buckets}
               settings={store.settings}
               stats={workbookStats}
+              cloudStatus={cloudStatus}
+              cloudSyncing={cloudSyncing}
               onUpdateSettings={handleUpdateSettings}
               onChangeCurrency={handleChangeCurrency}
               onSaveBucketsAsDefault={handleSaveBucketsAsDefault}
@@ -597,6 +762,14 @@ export const App: React.FC = () => {
               onImportJson={handleImportJson}
               onLoadDemoData={handleLoadDemo}
               onResetAllData={handleClearDemo}
+              onPickCloudFolder={handlePickCloudFolder}
+              onConnectCloudFolder={handleConnectCloudFolder}
+              onConnectGoogle={handleConnectGoogle}
+              onConnectOneDrive={handleConnectOneDrive}
+              onCloudPush={handleCloudPush}
+              onCloudPull={handleCloudPull}
+              onCloudDisconnect={handleCloudDisconnect}
+              onCloudToggleAutoSync={handleCloudToggleAutoSync}
             />
           )}
         </div>
@@ -655,7 +828,31 @@ export const App: React.FC = () => {
           <span>
             <kbd className="rounded border border-neutral-300 bg-white px-1 font-mono text-[10px]">/</kbd> Search
           </span>
-          <span className="font-semibold text-green-700">● Auto-saved</span>
+          <button
+            type="button"
+            onClick={() => setActiveSheet('settings')}
+            className={`flex items-center gap-1 font-semibold transition ${
+              cloudSyncing
+                ? 'text-yellow-700'
+                : cloudStatus.connected
+                ? 'text-green-700 hover:underline'
+                : 'text-neutral-500 hover:text-neutral-800'
+            }`}
+            title="Click to manage Cloud Sync in Settings"
+          >
+            <Cloud className="h-3.5 w-3.5" />
+            {cloudSyncing
+              ? 'Syncing cloud...'
+              : cloudStatus.connected
+              ? `Cloud: ${
+                  cloudStatus.provider === 'google'
+                    ? 'Google Drive'
+                    : cloudStatus.provider === 'onedrive'
+                    ? 'OneDrive'
+                    : 'Synced Folder'
+                }`
+              : 'Local only'}
+          </button>
         </div>
       </footer>
 

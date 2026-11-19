@@ -32,6 +32,8 @@ import {
 import { FALLBACK_CATEGORIES } from '../lib/seed';
 import { formatMoney } from '../lib/format';
 import { getStoragePath } from '../lib/storage';
+import { CloudStatus } from '../lib/cloud';
+import { CloudSyncPanel } from './CloudSyncPanel';
 
 interface SettingsViewProps {
   buckets: BucketConfig[];
@@ -41,6 +43,8 @@ interface SettingsViewProps {
     incomeCount: number;
     expenseCount: number;
   };
+  cloudStatus: CloudStatus;
+  cloudSyncing: boolean;
   onUpdateSettings: (next: AppSettings) => void;
   onChangeCurrency: (currency: CurrencyConfig) => void;
   onSaveBucketsAsDefault: () => void;
@@ -49,12 +53,22 @@ interface SettingsViewProps {
   onImportJson: () => void;
   onLoadDemoData: () => void;
   onResetAllData: () => void;
+  onPickCloudFolder: () => void;
+  onConnectCloudFolder: (dir: string) => void;
+  onConnectGoogle: (clientId: string, clientSecret: string) => Promise<void>;
+  onConnectOneDrive: (clientId: string) => Promise<void>;
+  onCloudPush: () => void;
+  onCloudPull: () => void;
+  onCloudDisconnect: () => void;
+  onCloudToggleAutoSync: (enabled: boolean) => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   buckets,
   settings,
   stats,
+  cloudStatus,
+  cloudSyncing,
   onUpdateSettings,
   onChangeCurrency,
   onSaveBucketsAsDefault,
@@ -63,6 +77,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onImportJson,
   onLoadDemoData,
   onResetAllData,
+  onPickCloudFolder,
+  onConnectCloudFolder,
+  onConnectGoogle,
+  onConnectOneDrive,
+  onCloudPush,
+  onCloudPull,
+  onCloudDisconnect,
+  onCloudToggleAutoSync,
 }) => {
   const [storagePath, setStoragePath] = useState('Loading...');
   const [selectedBucketId, setSelectedBucketId] = useState<string>(buckets[0]?.id || 'mandatory');
@@ -412,8 +434,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </section>
       </div>
 
-      {/* RIGHT COLUMN: CATEGORY MANAGER + WORKBOOK BACKUPS */}
+      {/* RIGHT COLUMN: CLOUD SYNC + CATEGORY MANAGER + WORKBOOK BACKUPS */}
       <div className="space-y-4 xl:col-span-5">
+        <CloudSyncPanel
+          status={cloudStatus}
+          syncing={cloudSyncing}
+          onPickFolder={onPickCloudFolder}
+          onConnectDetectedFolder={onConnectCloudFolder}
+          onConnectGoogle={onConnectGoogle}
+          onConnectOneDrive={onConnectOneDrive}
+          onPush={onCloudPush}
+          onPull={onCloudPull}
+          onDisconnect={onCloudDisconnect}
+          onToggleAutoSync={onCloudToggleAutoSync}
+        />
+
         {/* 3. Clean Tabbed Category Manager */}
         <section className="overflow-hidden border border-neutral-300 bg-white">
           <div className="flex items-center justify-between border-b border-neutral-300 bg-neutral-100 px-3 py-2">

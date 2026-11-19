@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const cloudSync = require('./cloudSync.cjs');
 
 const STORE_FILENAME = 'finance-store.json';
 
@@ -123,6 +124,29 @@ app.whenReady().then(() => {
       return { ok: false, error: err.message };
     }
   });
+
+  // Cloud Sync IPC (Google Drive, OneDrive, & Synced Cloud Folder)
+  ipcMain.handle('cloud:status', () => cloudSync.getSafeStatus());
+  ipcMain.handle('cloud:pickFolder', () => cloudSync.pickCloudFolder());
+  ipcMain.handle('cloud:connectFolder', (_e, folderPath) => cloudSync.connectFolder(folderPath));
+  ipcMain.handle('cloud:connectGoogle', async (_e, creds) => {
+    try {
+      return await cloudSync.connectGoogleDrive(creds);
+    } catch (err) {
+      return { ok: false, error: err.message || 'Google Drive sign-in failed' };
+    }
+  });
+  ipcMain.handle('cloud:connectOneDrive', async (_e, creds) => {
+    try {
+      return await cloudSync.connectOneDrive(creds);
+    } catch (err) {
+      return { ok: false, error: err.message || 'OneDrive sign-in failed' };
+    }
+  });
+  ipcMain.handle('cloud:push', (_e, data) => cloudSync.pushToCloud(data));
+  ipcMain.handle('cloud:pull', () => cloudSync.pullFromCloud());
+  ipcMain.handle('cloud:disconnect', () => cloudSync.disconnectCloud());
+  ipcMain.handle('cloud:setAutoSync', (_e, enabled) => cloudSync.setAutoSync(enabled));
 
   createWindow();
 

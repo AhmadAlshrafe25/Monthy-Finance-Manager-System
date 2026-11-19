@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BarChart3, Settings, Table2 } from 'lucide-react';
 import {
-  ActiveTab,
+  ActiveSheet,
   AppSettings,
   BucketSplit,
   BucketType,
+  CurrencyConfig,
   ExpenseEntry,
   FinanceStore,
   IncomeEntry,
@@ -20,44 +22,37 @@ import {
   createEmptyStore,
   createStarterStore,
 } from './lib/seed';
-import { monthToCsv, shiftMonthKey } from './lib/format';
+import { getDefaultDateForMonth, monthToCsv, shiftMonthKey } from './lib/format';
 import {
   exportTextFile,
   importJsonBackup,
   loadStore,
   saveStore,
 } from './lib/storage';
-import { Sidebar } from './components/Sidebar';
-import { TopSummaryBar } from './components/TopSummaryBar';
-import { BucketSplitBar } from './components/BucketSplitBar';
-import { IncomeTable } from './components/IncomeTable';
-import { ExpenseTable } from './components/ExpenseTable';
+import { ExcelHeader } from './components/ExcelHeader';
+import { SalaryAndSplitSheet } from './components/SalaryAndSplitSheet';
+import { ExpenseExcelSheet } from './components/ExpenseExcelSheet';
 import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
 import { Toast, ToastMessage } from './components/Toast';
 
 export const App: React.FC = () => {
   const [store, setStore] = useState<FinanceStore | null>(null);
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeSheet, setActiveSheet] = useState<ActiveSheet>('sheet');
   const [selectedBucketFilter, setSelectedBucketFilter] = useState<BucketType | 'all'>('all');
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
+  const salaryInputRef = useRef<HTMLInputElement | null>(null);
   const expenseQuickAddRef = useRef<HTMLInputElement | null>(null);
-  const incomeQuickAddRef = useRef<HTMLInputElement | null>(null);
   const expenseSearchRef = useRef<HTMLInputElement | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
   const showToast = useCallback((text: string, onUndo?: () => void) => {
-    if (toastTimerRef.current) {
-      window.clearTimeout(toastTimerRef.current);
-    }
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
     setToast({ id: String(Date.now()), text, onUndo });
-    toastTimerRef.current = window.setTimeout(() => {
-      setToast(null);
-    }, 4500);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 4000);
   }, []);
 
-  // Load persisted data on startup
   useEffect(() => {
     let mounted = true;
     loadStore().then((loaded) => {
@@ -75,7 +70,6 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Auto-save whenever store mutates
   const commitStore = useCallback((updater: (prev: FinanceStore) => FinanceStore) => {
     setStore((prev) => {
       if (!prev) return prev;
@@ -85,7 +79,7 @@ export const App: React.FC = () => {
     });
   }, []);
 
-  // Global keyboard shortcuts for ultra-fast desktop flow
+  // Fast keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -98,40 +92,33 @@ export const App: React.FC = () => {
 
       if (e.altKey && e.key.toLowerCase() === 'e') {
         e.preventDefault();
-        if (activeTab !== 'dashboard' && activeTab !== 'ledger') {
-          setActiveTab('dashboard');
-        }
-        setTimeout(() => expenseQuickAddRef.current?.focus(), 30);
+        setActiveSheet('sheet');
+        setTimeout(() => expenseQuickAddRef.current?.focus(), 20);
         return;
       }
 
-      if (e.altKey && e.key.toLowerCase() === 'i') {
+      if (e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (activeTab !== 'dashboard' && activeTab !== 'ledger') {
-          setActiveTab('dashboard');
-        }
-        setTimeout(() => incomeQuickAddRef.current?.focus(), 30);
+        setActiveSheet('sheet');
+        setTimeout(() => salaryInputRef.current?.focus(), 20);
         return;
       }
 
       if (isInputFocused) return;
 
-      if (e.key === '1') setActiveTab('dashboard');
-      else if (e.key === '2') setActiveTab('ledger');
-      else if (e.key === '3') setActiveTab('analytics');
-      else if (e.key === '4') setActiveTab('settings');
+      if (e.key === '1') setActiveSheet('sheet');
+      else if (e.key === '2') setActiveSheet('analytics');
+      else if (e.key === '3') setActiveSheet('settings');
       else if (e.key === '/') {
         e.preventDefault();
-        if (activeTab !== 'dashboard' && activeTab !== 'ledger') {
-          setActiveTab('ledger');
-        }
-        setTimeout(() => expenseSearchRef.current?.focus(), 30);
+        setActiveSheet('sheet');
+        setTimeout(() => expenseSearchRef.current?.focus(), 20);
       }
     };
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeTab]);
+  }, []);
 
   const activeMonthData: MonthData | null = useMemo(() => {
     if (!store) return null;
@@ -156,17 +143,10 @@ export const App: React.FC = () => {
     return calculateMultiMonthTrends(store.months);
   }, [store]);
 
-  const totalSplitIncome = useMemo(() => {
-    if (!activeMonthData) return 0;
-    return activeMonthData.incomes
-      .filter((i) => i.allocationMode === 'split')
-      .reduce((acc, i) => acc + i.amount, 0);
-  }, [activeMonthData]);
-
   if (!store || !activeMonthData || !summary) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#090d16] text-xs text-slate-400">
-        Loading Monthly Finance Manager...
+      <div className="flex h-screen items-center justify-center bg-white text-xs text-neutral-600">
+        Loading Monthly Finance Sheet...
       </div>
     );
   }
@@ -201,18 +181,15 @@ export const App: React.FC = () => {
   };
 
   const handleShiftMonth = (delta: number) => {
-    const nextKey = shiftMonthKey(store.activeMonth, delta);
-    handleSelectMonth(nextKey);
+    handleSelectMonth(shiftMonthKey(store.activeMonth, delta));
   };
 
   const handleCreateNextMonth = () => {
     const nextKey = shiftMonthKey(store.activeMonth, 1);
     if (store.months[nextKey]) {
       handleSelectMonth(nextKey);
-      showToast(`Switched to ${getMonthLabel(nextKey)}`);
       return;
     }
-
     const cloned = cloneRecurringForNewMonth(activeMonthData, nextKey);
     commitStore((prev) => ({
       ...prev,
@@ -222,14 +199,32 @@ export const App: React.FC = () => {
         [nextKey]: cloned,
       },
     }));
-    showToast(
-      `Created ${getMonthLabel(nextKey)} with ${cloned.incomes.length} recurring income(s) & ${cloned.expenses.length} bill(s)`
-    );
+    showToast(`Created ${getMonthLabel(nextKey)} with recurring items`);
   };
 
-  const handleChangeSplit = (nextSplit: BucketSplit) => {
-    updateActiveMonth((m) => ({ ...m, split: nextSplit }));
-    showToast(`Split updated to ${nextSplit.mandatory}/${nextSplit.fun}/${nextSplit.savings}`);
+  // Direct 1-tap Monthly Salary cell handler
+  const handleSetSalary = (amount: number) => {
+    updateActiveMonth((m) => {
+      const existing = m.incomes.find((i) => i.type === 'salary');
+      if (existing) {
+        return {
+          ...m,
+          incomes: m.incomes.map((i) =>
+            i.id === existing.id ? { ...i, amount } : i
+          ),
+        };
+      }
+      const created: IncomeEntry = {
+        id: `inc_${crypto.randomUUID().slice(0, 8)}`,
+        date: getDefaultDateForMonth(m.monthKey),
+        title: 'Monthly Salary',
+        type: 'salary',
+        amount,
+        allocationMode: 'split',
+        recurring: true,
+      };
+      return { ...m, incomes: [created, ...m.incomes] };
+    });
   };
 
   const handleAddIncome = (entry: Omit<IncomeEntry, 'id'>) => {
@@ -237,8 +232,8 @@ export const App: React.FC = () => {
       ...entry,
       id: `inc_${crypto.randomUUID().slice(0, 8)}`,
     };
-    updateActiveMonth((m) => ({ ...m, incomes: [created, ...m.incomes] }));
-    showToast(`Added income "${created.title}"`);
+    updateActiveMonth((m) => ({ ...m, incomes: [...m.incomes, created] }));
+    showToast(`Added "${created.title}"`);
   };
 
   const handleUpdateIncome = (id: string, patch: Partial<IncomeEntry>) => {
@@ -255,9 +250,13 @@ export const App: React.FC = () => {
       ...m,
       incomes: m.incomes.filter((i) => i.id !== id),
     }));
-    showToast(`Deleted "${deleted.title}"`, () => {
-      updateActiveMonth((m) => ({ ...m, incomes: [deleted, ...m.incomes] }));
+    showToast(`Removed "${deleted.title}"`, () => {
+      updateActiveMonth((m) => ({ ...m, incomes: [...m.incomes, deleted] }));
     });
+  };
+
+  const handleChangeSplit = (nextSplit: BucketSplit) => {
+    updateActiveMonth((m) => ({ ...m, split: nextSplit }));
   };
 
   const handleAddExpense = (entry: Omit<ExpenseEntry, 'id'>) => {
@@ -266,7 +265,7 @@ export const App: React.FC = () => {
       id: `exp_${crypto.randomUUID().slice(0, 8)}`,
     };
     updateActiveMonth((m) => ({ ...m, expenses: [created, ...m.expenses] }));
-    showToast(`Cut "${created.title}" from ${created.bucket}`);
+    showToast(`Cut "${created.title}"`);
   };
 
   const handleUpdateExpense = (id: string, patch: Partial<ExpenseEntry>) => {
@@ -283,29 +282,26 @@ export const App: React.FC = () => {
       ...m,
       expenses: m.expenses.filter((e) => e.id !== id),
     }));
-    showToast(`Removed fee "${deleted.title}"`, () => {
+    showToast(`Deleted "${deleted.title}"`, () => {
       updateActiveMonth((m) => ({ ...m, expenses: [deleted, ...m.expenses] }));
     });
-  };
-
-  const handleDuplicateExpense = (entry: ExpenseEntry) => {
-    const copy: ExpenseEntry = {
-      ...entry,
-      id: `exp_${crypto.randomUUID().slice(0, 8)}`,
-      title: `${entry.title} (copy)`,
-    };
-    updateActiveMonth((m) => ({ ...m, expenses: [copy, ...m.expenses] }));
-    showToast(`Duplicated "${entry.title}"`);
   };
 
   const handleUpdateSettings = (nextSettings: AppSettings) => {
     commitStore((prev) => ({ ...prev, settings: nextSettings }));
   };
 
+  const handleChangeCurrency = (currency: CurrencyConfig) => {
+    commitStore((prev) => ({
+      ...prev,
+      settings: { ...prev.settings, currency },
+    }));
+  };
+
   const handleExportCsv = async () => {
     const csv = monthToCsv(activeMonthData);
     const res = await exportTextFile(`finance-${activeMonthData.monthKey}.csv`, csv, 'csv');
-    if (res.ok) showToast(`Exported ${activeMonthData.monthKey} to CSV`);
+    if (res.ok) showToast(`Exported ${activeMonthData.monthKey}.csv`);
   };
 
   const handleExportJson = async () => {
@@ -314,7 +310,7 @@ export const App: React.FC = () => {
       JSON.stringify(store, null, 2),
       'json'
     );
-    if (res.ok) showToast('Saved full JSON backup');
+    if (res.ok) showToast('Saved JSON backup');
   };
 
   const handleImportJson = async () => {
@@ -322,180 +318,160 @@ export const App: React.FC = () => {
     if (res.ok && res.data && res.data.months) {
       setStore(res.data);
       saveStore(res.data);
-      showToast('Imported JSON backup successfully');
-    } else if (res.error) {
-      showToast(`Import failed: ${res.error}`);
+      showToast('Imported JSON backup');
     }
   };
 
-  const handleClearSampleData = () => {
+  const handleClearDemo = () => {
     const fresh = createEmptyStore();
     setStore(fresh);
     saveStore(fresh);
     setSelectedBucketFilter('all');
-    showToast('Started fresh — enter your monthly salary to begin!');
+    setActiveSheet('sheet');
+    showToast('Blank sheet ready — type your salary in Row 1!');
+    setTimeout(() => salaryInputRef.current?.focus(), 40);
   };
 
-  const handleLoadDemoData = () => {
+  const handleLoadDemo = () => {
     const demo = createStarterStore();
     setStore(demo);
     saveStore(demo);
     setSelectedBucketFilter('all');
-    showToast('Loaded 4-month demo dataset');
+    showToast('Loaded sample demo sheet');
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#090d16] text-slate-100">
-      <Sidebar
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-white text-neutral-900">
+      {/* Top Green Excel Ribbon */}
+      <ExcelHeader
         activeMonth={store.activeMonth}
         availableMonths={availableMonths}
+        currency={store.settings.currency}
+        isSampleData={store.settings.isSampleData}
         onSelectMonth={handleSelectMonth}
         onShiftMonth={handleShiftMonth}
         onCreateNextMonth={handleCreateNextMonth}
-        split={activeMonthData.split}
+        onChangeCurrency={handleChangeCurrency}
         onExportCsv={handleExportCsv}
-        isSampleData={store.settings.isSampleData}
-        onClearSampleData={handleClearSampleData}
+        onClearDemo={handleClearDemo}
       />
 
-      <main className="flex flex-1 flex-col overflow-hidden">
-        {/* Compact Top Title Strip */}
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-slate-800/80 bg-[#0b101d] px-5">
-          <div className="flex items-center gap-3">
-            <h2 className="text-sm font-bold tracking-tight text-slate-100">
-              {activeTab === 'dashboard' && `Overview & Quick Split — ${getMonthLabel(store.activeMonth)}`}
-              {activeTab === 'ledger' && `Full Tables & Ledger — ${getMonthLabel(store.activeMonth)}`}
-              {activeTab === 'analytics' && `Analytics Lab — ${getMonthLabel(store.activeMonth)}`}
-              {activeTab === 'settings' && 'Settings, Categories & Backups'}
-            </h2>
-            {selectedBucketFilter !== 'all' && (activeTab === 'dashboard' || activeTab === 'ledger') && (
-              <button
-                type="button"
-                onClick={() => setSelectedBucketFilter('all')}
-                className="rounded-full border border-sky-500/40 bg-sky-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-sky-300 transition hover:bg-sky-500/25"
-              >
-                Filtered: {selectedBucketFilter} ✕
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 text-[11px] text-slate-400">
-            <span className="hidden sm:inline">Auto-saved locally</span>
-            <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-          </div>
-        </header>
-
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 lg:p-5">
-          <div className="mx-auto max-w-[1600px] space-y-4">
-            {activeTab === 'dashboard' && (
-              <>
-                <TopSummaryBar
-                  summary={summary}
-                  currency={store.settings.currency}
-                  selectedBucketFilter={selectedBucketFilter}
-                  onSelectBucketFilter={setSelectedBucketFilter}
-                />
-
-                <BucketSplitBar
-                  split={activeMonthData.split}
-                  totalSplitIncome={totalSplitIncome}
-                  currency={store.settings.currency}
-                  onChangeSplit={handleChangeSplit}
-                />
-
-                <ExpenseTable
-                  monthKey={activeMonthData.monthKey}
-                  expenses={activeMonthData.expenses}
-                  buckets={summary.buckets}
-                  categoriesByBucket={store.settings.categories}
-                  currency={store.settings.currency}
-                  selectedBucketFilter={selectedBucketFilter}
-                  onSelectBucketFilter={setSelectedBucketFilter}
-                  quickAddTitleRef={expenseQuickAddRef}
-                  searchInputRef={expenseSearchRef}
-                  onAddExpense={handleAddExpense}
-                  onUpdateExpense={handleUpdateExpense}
-                  onDeleteExpense={handleDeleteExpense}
-                  onDuplicateExpense={handleDuplicateExpense}
-                />
-
-                <IncomeTable
-                  monthKey={activeMonthData.monthKey}
-                  incomes={activeMonthData.incomes}
-                  split={activeMonthData.split}
-                  currency={store.settings.currency}
-                  quickAddTitleRef={incomeQuickAddRef}
-                  onAddIncome={handleAddIncome}
-                  onUpdateIncome={handleUpdateIncome}
-                  onDeleteIncome={handleDeleteIncome}
-                  compact
-                />
-              </>
-            )}
-
-            {activeTab === 'ledger' && (
-              <>
-                <BucketSplitBar
-                  split={activeMonthData.split}
-                  totalSplitIncome={totalSplitIncome}
-                  currency={store.settings.currency}
-                  onChangeSplit={handleChangeSplit}
-                />
-
-                <IncomeTable
-                  monthKey={activeMonthData.monthKey}
-                  incomes={activeMonthData.incomes}
-                  split={activeMonthData.split}
-                  currency={store.settings.currency}
-                  quickAddTitleRef={incomeQuickAddRef}
-                  onAddIncome={handleAddIncome}
-                  onUpdateIncome={handleUpdateIncome}
-                  onDeleteIncome={handleDeleteIncome}
-                />
-
-                <ExpenseTable
-                  monthKey={activeMonthData.monthKey}
-                  expenses={activeMonthData.expenses}
-                  buckets={summary.buckets}
-                  categoriesByBucket={store.settings.categories}
-                  currency={store.settings.currency}
-                  selectedBucketFilter={selectedBucketFilter}
-                  onSelectBucketFilter={setSelectedBucketFilter}
-                  quickAddTitleRef={expenseQuickAddRef}
-                  searchInputRef={expenseSearchRef}
-                  onAddExpense={handleAddExpense}
-                  onUpdateExpense={handleUpdateExpense}
-                  onDeleteExpense={handleDeleteExpense}
-                  onDuplicateExpense={handleDuplicateExpense}
-                />
-              </>
-            )}
-
-            {activeTab === 'analytics' && (
-              <AnalyticsView
+      {/* Main Sheet Canvas */}
+      <main className="flex-1 overflow-y-auto bg-neutral-50 p-3 lg:p-4">
+        <div className="mx-auto max-w-[1600px] space-y-4">
+          {activeSheet === 'sheet' && (
+            <>
+              <SalaryAndSplitSheet
+                monthKey={activeMonthData.monthKey}
+                incomes={activeMonthData.incomes}
+                split={activeMonthData.split}
                 summary={summary}
-                multiMonthTrends={multiMonthTrends}
                 currency={store.settings.currency}
+                selectedBucketFilter={selectedBucketFilter}
+                salaryInputRef={salaryInputRef}
+                onSelectBucketFilter={setSelectedBucketFilter}
+                onSetSalary={handleSetSalary}
+                onAddIncome={handleAddIncome}
+                onUpdateIncome={handleUpdateIncome}
+                onDeleteIncome={handleDeleteIncome}
+                onChangeSplit={handleChangeSplit}
               />
-            )}
 
-            {activeTab === 'settings' && (
-              <SettingsView
-                settings={store.settings}
-                onUpdateSettings={handleUpdateSettings}
-                onExportJson={handleExportJson}
-                onExportCsv={handleExportCsv}
-                onImportJson={handleImportJson}
-                onLoadDemoData={handleLoadDemoData}
-                onResetAllData={handleClearSampleData}
+              <ExpenseExcelSheet
+                monthKey={activeMonthData.monthKey}
+                expenses={activeMonthData.expenses}
+                buckets={summary.buckets}
+                categoriesByBucket={store.settings.categories}
+                currency={store.settings.currency}
+                selectedBucketFilter={selectedBucketFilter}
+                quickAddTitleRef={expenseQuickAddRef}
+                searchInputRef={expenseSearchRef}
+                onSelectBucketFilter={setSelectedBucketFilter}
+                onAddExpense={handleAddExpense}
+                onUpdateExpense={handleUpdateExpense}
+                onDeleteExpense={handleDeleteExpense}
               />
-            )}
-          </div>
+            </>
+          )}
+
+          {activeSheet === 'analytics' && (
+            <AnalyticsView
+              summary={summary}
+              multiMonthTrends={multiMonthTrends}
+              currency={store.settings.currency}
+            />
+          )}
+
+          {activeSheet === 'settings' && (
+            <SettingsView
+              settings={store.settings}
+              onUpdateSettings={handleUpdateSettings}
+              onExportJson={handleExportJson}
+              onExportCsv={handleExportCsv}
+              onImportJson={handleImportJson}
+              onLoadDemoData={handleLoadDemo}
+              onResetAllData={handleClearDemo}
+            />
+          )}
         </div>
       </main>
+
+      {/* Bottom Excel-Style Sheet Tabs Bar */}
+      <footer className="flex h-9 shrink-0 items-center justify-between border-t border-neutral-300 bg-neutral-100 px-3 select-none">
+        <div className="flex h-full items-end gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveSheet('sheet')}
+            className={`flex h-8 items-center gap-1.5 rounded-t border-x border-t px-4 text-xs font-bold transition ${
+              activeSheet === 'sheet'
+                ? 'border-neutral-300 border-b-white bg-white text-green-700 shadow-sm'
+                : 'border-transparent bg-neutral-200/70 text-neutral-600 hover:bg-neutral-200'
+            }`}
+          >
+            <Table2 className="h-3.5 w-3.5" />
+            Sheet1: Monthly Budget
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSheet('analytics')}
+            className={`flex h-8 items-center gap-1.5 rounded-t border-x border-t px-4 text-xs font-bold transition ${
+              activeSheet === 'analytics'
+                ? 'border-neutral-300 border-b-white bg-white text-green-700 shadow-sm'
+                : 'border-transparent bg-neutral-200/70 text-neutral-600 hover:bg-neutral-200'
+            }`}
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            Sheet2: Analytics
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSheet('settings')}
+            className={`flex h-8 items-center gap-1.5 rounded-t border-x border-t px-4 text-xs font-bold transition ${
+              activeSheet === 'settings'
+                ? 'border-neutral-300 border-b-white bg-white text-green-700 shadow-sm'
+                : 'border-transparent bg-neutral-200/70 text-neutral-600 hover:bg-neutral-200'
+            }`}
+          >
+            <Settings className="h-3.5 w-3.5" />
+            Sheet3: Settings
+          </button>
+        </div>
+
+        <div className="hidden items-center gap-3 text-[11px] text-neutral-500 sm:flex">
+          <span>
+            <kbd className="rounded border border-neutral-300 bg-white px-1 font-mono text-[10px]">Alt+S</kbd> Salary
+          </span>
+          <span>
+            <kbd className="rounded border border-neutral-300 bg-white px-1 font-mono text-[10px]">Alt+E</kbd> Cut Fee
+          </span>
+          <span>
+            <kbd className="rounded border border-neutral-300 bg-white px-1 font-mono text-[10px]">/</kbd> Search
+          </span>
+          <span className="font-semibold text-green-700">● Auto-saved</span>
+        </div>
+      </footer>
 
       <Toast toast={toast} onDismiss={() => setToast(null)} />
     </div>

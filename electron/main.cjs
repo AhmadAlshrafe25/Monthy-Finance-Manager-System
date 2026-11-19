@@ -42,7 +42,7 @@ function createWindow() {
     height: 920,
     minWidth: 1080,
     minHeight: 700,
-    backgroundColor: '#090d16',
+    backgroundColor: '#ffffff',
     title: 'Monthly Finance Manager',
     show: false,
     webPreferences: {

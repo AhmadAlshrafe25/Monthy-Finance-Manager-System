@@ -18,7 +18,7 @@ export interface IncomeEntry {
   title: string;
   type: IncomeType;
   amount: number;
-  allocationMode: AllocationMode; // 'split' uses monthly BucketSplit, or direct to a single bucket
+  allocationMode: AllocationMode;
   recurring: boolean;
   notes?: string;
 }
@@ -107,8 +107,8 @@ export interface MonthSummary {
   totalRemaining: number;
   savingsAllocated: number;
   savingsActual: number;
-  savingsRatePct: number; // (savingsAllocated + unspent surplus) or savingsAllocated / totalIncome
-  effectiveSavingsRatePct: number; // (savingsAllocated / totalIncome) * 100
+  savingsRatePct: number;
+  effectiveSavingsRatePct: number;
   burnRatePerDay: number;
   projectedEndBalance: number;
   safeDailyFunSpend: number;
@@ -133,8 +133,9 @@ export interface MultiMonthPoint {
   netLeft: number;
 }
 
-export type ActiveTab = 'dashboard' | 'ledger' | 'analytics' | 'settings';
+export type ActiveSheet = 'sheet' | 'analytics' | 'settings';
 
+// Strict palette: White, Red, Green, Yellow ONLY
 export const BUCKET_META: Record<
   BucketType,
   {
@@ -151,41 +152,41 @@ export const BUCKET_META: Record<
   mandatory: {
     label: 'Mandatory',
     shortLabel: 'Mandatory',
-    description: 'Essential living costs, bills, rent, groceries & fixed fees',
-    color: '#38bdf8',
-    bgClass: 'bg-sky-500/15',
-    textClass: 'text-sky-400',
-    borderClass: 'border-sky-500/30',
-    badgeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/30',
+    description: 'Rent, groceries, bills, utilities & essential fees',
+    color: '#dc2626',
+    bgClass: 'bg-red-50',
+    textClass: 'text-red-700',
+    borderClass: 'border-red-300',
+    badgeClass: 'bg-red-100 text-red-800 border border-red-300',
   },
   fun: {
     label: 'Fun Spending',
-    shortLabel: 'Fun',
-    description: 'Dining out, entertainment, hobbies, shopping & lifestyle',
-    color: '#c084fc',
-    bgClass: 'bg-purple-500/15',
-    textClass: 'text-purple-400',
-    borderClass: 'border-purple-500/30',
-    badgeClass: 'bg-purple-500/15 text-purple-300 border border-purple-500/30',
+    shortLabel: 'Fun Spending',
+    description: 'Dining out, entertainment, hobbies & shopping',
+    color: '#eab308',
+    bgClass: 'bg-yellow-50',
+    textClass: 'text-yellow-800',
+    borderClass: 'border-yellow-400',
+    badgeClass: 'bg-yellow-100 text-yellow-900 border border-yellow-400',
   },
   savings: {
     label: 'Savings / Debt',
-    shortLabel: 'Savings/Debt',
-    description: 'Emergency fund, investments, debt payoff & financial goals',
-    color: '#34d399',
-    bgClass: 'bg-emerald-500/15',
-    textClass: 'text-emerald-400',
-    borderClass: 'border-emerald-500/30',
-    badgeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30',
+    shortLabel: 'Savings / Debt',
+    description: 'Emergency fund, investments & debt payoff',
+    color: '#16a34a',
+    bgClass: 'bg-green-50',
+    textClass: 'text-green-700',
+    borderClass: 'border-green-300',
+    badgeClass: 'bg-green-100 text-green-800 border border-green-300',
   },
 };
 
 export const INCOME_TYPE_META: Record<IncomeType, { label: string; badgeClass: string }> = {
-  salary: { label: 'Salary', badgeClass: 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' },
-  extra: { label: 'Extra Income', badgeClass: 'bg-sky-500/15 text-sky-300 border border-sky-500/30' },
-  freelance: { label: 'Freelance', badgeClass: 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30' },
-  bonus: { label: 'Bonus', badgeClass: 'bg-amber-500/15 text-amber-300 border border-amber-500/30' },
-  other: { label: 'Other', badgeClass: 'bg-slate-500/15 text-slate-300 border border-slate-500/30' },
+  salary: { label: 'Salary', badgeClass: 'bg-green-100 text-green-800 border border-green-300' },
+  extra: { label: 'Extra', badgeClass: 'bg-yellow-100 text-yellow-900 border border-yellow-400' },
+  freelance: { label: 'Freelance', badgeClass: 'bg-green-50 text-green-800 border border-green-300' },
+  bonus: { label: 'Bonus', badgeClass: 'bg-yellow-100 text-yellow-900 border border-yellow-400' },
+  other: { label: 'Other', badgeClass: 'bg-neutral-100 text-neutral-800 border border-neutral-300' },
 };
 
 export const CURRENCY_PRESETS: CurrencyConfig[] = [
@@ -200,8 +201,8 @@ export const CURRENCY_PRESETS: CurrencyConfig[] = [
 ];
 
 export const SPLIT_PRESETS: { name: string; split: BucketSplit }[] = [
-  { name: 'Classic 50 / 30 / 20', split: { mandatory: 50, fun: 30, savings: 20 } },
-  { name: 'Aggressive Saver 50 / 20 / 30', split: { mandatory: 50, fun: 20, savings: 30 } },
-  { name: 'High Fixed Costs 60 / 20 / 20', split: { mandatory: 60, fun: 20, savings: 20 } },
-  { name: 'Debt Crusher 50 / 10 / 40', split: { mandatory: 50, fun: 10, savings: 40 } },
+  { name: '50 / 30 / 20', split: { mandatory: 50, fun: 30, savings: 20 } },
+  { name: '50 / 20 / 30', split: { mandatory: 50, fun: 20, savings: 30 } },
+  { name: '60 / 20 / 20', split: { mandatory: 60, fun: 20, savings: 20 } },
+  { name: '50 / 10 / 40', split: { mandatory: 50, fun: 10, savings: 40 } },
 ];

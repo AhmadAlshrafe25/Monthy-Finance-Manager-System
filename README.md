@@ -13,6 +13,7 @@
 - **Analytics**
   - Monthly indicators (Gross Income, Salary Cuts, Net Income, Total Cut, Remaining, Daily Burn, Projected Month-End), Budget vs. Cut chart, Breakdown Donut (by Bucket or Category), Daily Cashflow Burn-Down, Multi-Month History, and Category Pivot Table.
 - **Settings**
+  - **Personal Cloud Sync** — Connect your own **Google Drive** (OAuth 2.0 + PKCE), **Microsoft OneDrive** (OAuth 2.0 + PKCE), or any synced **Cloud Folder** (zero-setup) with automatic background sync, manual Push/Pull, and encrypted local token storage.
   - **Currency Converter & Exchange Rates** — Switching currencies automatically converts all salaries, cuts, and monthly fees across every month (with editable rates and optional online Live Rates refresh).
   - **Workflow Preferences** — Toggle next-month recurring rollover, default Paid/Scheduled status, max side-by-side tables (`1`–`3`), and save custom splits as your default template.
   - **Categories Manager & Backups** — Clean tabbed category editor, workbook stats, CSV export, and JSON backup/restore.

@@ -31,7 +31,7 @@ import {
   createStarterStore,
   migrateStore,
 } from './lib/seed';
-import { getDefaultDateForMonth, monthToCsv, shiftMonthKey } from './lib/format';
+import { getCurrentMonthKey, getDefaultDateForMonth, monthToCsv, shiftMonthKey } from './lib/format';
 import {
   exportTextFile,
   importJsonBackup,
@@ -99,12 +99,33 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     let mounted = true;
+    const currentMonthKey = getCurrentMonthKey();
     loadStore().then((raw) => {
       if (!mounted) return;
       const migrated = migrateStore(raw);
       if (migrated && Object.keys(migrated.months).length > 0) {
-        setStore(migrated);
-        saveStore(migrated);
+        let nextMonths = migrated.months;
+        if (!nextMonths[currentMonthKey]) {
+          // Auto-create current month, carrying over recurring items from most recent prior month if enabled
+          const sortedKeys = Object.keys(nextMonths).sort();
+          const priorKey = [...sortedKeys].reverse().find((k) => k < currentMonthKey);
+          const shouldCarry = migrated.settings.autoCarryOverNextMonth ?? true;
+          const newMonth =
+            priorKey && shouldCarry
+              ? cloneRecurringForNewMonth(nextMonths[priorKey], currentMonthKey)
+              : createEmptyMonth(currentMonthKey, migrated.settings.defaultBuckets);
+          nextMonths = {
+            ...nextMonths,
+            [currentMonthKey]: newMonth,
+          };
+        }
+        const synced: FinanceStore = {
+          ...migrated,
+          activeMonth: currentMonthKey,
+          months: nextMonths,
+        };
+        setStore(synced);
+        saveStore(synced);
       } else {
         const starter = createStarterStore();
         setStore(starter);

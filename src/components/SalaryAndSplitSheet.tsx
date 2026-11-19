@@ -78,14 +78,17 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
     setNewBucketColor(nextDefaultColor);
   }, [nextDefaultColor]);
 
-  const handleAddExtraOrCut = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAddExtraOrCut = (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
     const num = parseFloat(extraAmount);
-    if (!extraTitle.trim() || Number.isNaN(num) || num === 0) return;
+    if (Number.isNaN(num) || num === 0) return;
+
+    const cleanTitle =
+      extraTitle.trim() || (num < 0 ? 'Salary Cut' : 'Extra Income');
 
     onAddIncome({
       date: getDefaultDateForMonth(monthKey),
-      title: extraTitle.trim(),
+      title: cleanTitle,
       type: num < 0 ? 'cut' : 'extra',
       amount: num,
       allocationMode: extraAlloc,
@@ -95,11 +98,11 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
     setExtraAmount('');
   };
 
-  const handleCreateBucket = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newBucketName.trim()) return;
+  const handleCreateBucket = (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
+    const name = newBucketName.trim() || `Budget ${buckets.length + 1}`;
     const pct = Math.max(0, Math.min(100, parseFloat(newBucketPct) || 0));
-    onAddBucket(newBucketName.trim(), newBucketColor, pct);
+    onAddBucket(name, newBucketColor, pct);
     setNewBucketName('');
     setNewBucketPct('10');
   };
@@ -134,7 +137,6 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
             </div>
           </div>
 
-          <form id="extra-income-form" onSubmit={handleAddExtraOrCut} />
           <table className="excel-table text-xs tabular-nums">
             <thead>
               <tr className="bg-neutral-100 text-[11px] font-bold text-neutral-600">
@@ -253,17 +255,18 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 </td>
                 <td className="p-0">
                   <input
-                    form="extra-income-form"
                     type="text"
-                    placeholder="Bonus, freelance, or tax/cut..."
+                    placeholder="Bonus, freelance, or cut (optional)..."
                     value={extraTitle}
                     onChange={(e) => setExtraTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleAddExtraOrCut(e);
+                    }}
                     className="excel-cell-input placeholder-neutral-500"
                   />
                 </td>
                 <td className="p-0">
                   <select
-                    form="extra-income-form"
                     value={extraAlloc}
                     onChange={(e) => setExtraAlloc(e.target.value as AllocationMode)}
                     className="excel-cell-input cursor-pointer text-[11px] text-neutral-700"
@@ -278,7 +281,6 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 </td>
                 <td className="p-0">
                   <input
-                    form="extra-income-form"
                     type="number"
                     step="0.01"
                     placeholder="+50 or -30"
@@ -294,9 +296,9 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 </td>
                 <td className="p-0 text-center">
                   <button
-                    type="submit"
-                    form="extra-income-form"
-                    title="Add income or cut (Enter)"
+                    type="button"
+                    onClick={() => handleAddExtraOrCut()}
+                    title="Add income or salary cut (Enter)"
                     className={`flex h-full w-full items-center justify-center py-1.5 text-white transition ${
                       parseFloat(extraAmount) < 0
                         ? 'bg-red-600 hover:bg-red-700'
@@ -339,7 +341,6 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
             )}
           </div>
 
-          <form id="add-bucket-form" onSubmit={handleCreateBucket} />
           <table className="excel-table text-xs tabular-nums">
             <thead>
               <tr className="bg-neutral-50 text-[11px] font-bold text-neutral-600">
@@ -501,18 +502,19 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 </td>
                 <td className="p-0">
                   <input
-                    form="add-bucket-form"
                     type="text"
                     placeholder="+ Add new split (e.g. Car, Travel, Family)..."
                     value={newBucketName}
                     onChange={(e) => setNewBucketName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateBucket(e);
+                    }}
                     className="excel-cell-input placeholder-neutral-500"
                   />
                 </td>
                 <td className="p-0">
                   <div className="flex items-center justify-center">
                     <input
-                      form="add-bucket-form"
                       type="number"
                       min={0}
                       max={100}
@@ -531,8 +533,8 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 </td>
                 <td className="p-0 text-center">
                   <button
-                    type="submit"
-                    form="add-bucket-form"
+                    type="button"
+                    onClick={() => handleCreateBucket()}
                     title="Add new budget split (Enter)"
                     className="flex h-full w-full items-center justify-center bg-green-600 py-1.5 text-white transition hover:bg-green-700"
                   >

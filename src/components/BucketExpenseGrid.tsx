@@ -84,14 +84,16 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [expenses, searchQuery]);
 
-  const handleAdd = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAdd = (e?: React.SyntheticEvent) => {
+    e?.preventDefault();
     const num = parseFloat(amount);
-    if (!title.trim() || Number.isNaN(num) || num <= 0) return;
+    if (Number.isNaN(num) || num <= 0) return;
+
+    const cleanTitle = title.trim() || category || bucket.name;
 
     onAddExpense({
       date: date || getDefaultDateForMonth(monthKey),
-      title: title.trim(),
+      title: cleanTitle,
       bucket: bucket.id,
       category: category || 'General',
       amount: num,
@@ -103,7 +105,6 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
     titleInputRef?.current?.focus();
   };
 
-  const formId = `bucket-form-${bucket.id}`;
   const isOver = metrics?.isOverBudget ?? false;
 
   return (
@@ -140,7 +141,6 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
       </div>
 
       {/* Excel Table Body */}
-      <form id={formId} onSubmit={handleAdd} />
       <div className="max-h-[420px] flex-1 overflow-x-auto overflow-y-auto">
         <table className="excel-table text-xs tabular-nums">
           <thead className="sticky top-0 z-10 bg-neutral-100 text-[10px] font-bold uppercase text-neutral-600">
@@ -162,17 +162,18 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
               <td className="p-0">
                 <input
                   ref={titleInputRef}
-                  form={formId}
                   type="text"
                   placeholder={`Add to ${bucket.name}...`}
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAdd(e);
+                  }}
                   className="excel-cell-input font-medium text-neutral-900 placeholder-neutral-500"
                 />
               </td>
               <td className="p-0">
                 <select
-                  form={formId}
                   value={category}
                   onChange={(e) => setCategory(e.target.value)}
                   className="excel-cell-input cursor-pointer text-[11px] text-neutral-700"
@@ -186,7 +187,6 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
               </td>
               <td className="p-0">
                 <input
-                  form={formId}
                   type="number"
                   step="0.01"
                   min="0"
@@ -201,8 +201,8 @@ const SingleBucketTable: React.FC<SingleBucketTableProps> = ({
               </td>
               <td className="p-0 text-center">
                 <button
-                  type="submit"
-                  form={formId}
+                  type="button"
+                  onClick={() => handleAdd()}
                   title={`Cut fee from ${bucket.name} (Enter)`}
                   className="flex h-full w-full items-center justify-center bg-red-600 py-1.5 text-white transition hover:bg-red-700"
                 >

@@ -203,25 +203,26 @@ export const App: React.FC = () => {
   };
 
   const handleShiftMonth = (delta: number) => {
-    handleSelectMonth(shiftMonthKey(store.activeMonth, delta));
-  };
-
-  const handleCreateNextMonth = () => {
-    const nextKey = shiftMonthKey(store.activeMonth, 1);
-    if (store.months[nextKey]) {
-      handleSelectMonth(nextKey);
+    const targetKey = shiftMonthKey(store.activeMonth, delta);
+    if (store.months[targetKey]) {
+      handleSelectMonth(targetKey);
       return;
     }
-    const cloned = cloneRecurringForNewMonth(activeMonthData, nextKey);
-    commitStore((prev) => ({
-      ...prev,
-      activeMonth: nextKey,
-      months: {
-        ...prev.months,
-        [nextKey]: cloned,
-      },
-    }));
-    showToast(`Created ${getMonthLabel(nextKey)} with recurring items & splits`);
+
+    if (delta > 0) {
+      const cloned = cloneRecurringForNewMonth(activeMonthData, targetKey);
+      commitStore((prev) => ({
+        ...prev,
+        activeMonth: targetKey,
+        months: {
+          ...prev.months,
+          [targetKey]: cloned,
+        },
+      }));
+      showToast(`Created ${getMonthLabel(targetKey)} with recurring items & splits`);
+    } else {
+      handleSelectMonth(targetKey);
+    }
   };
 
   // Salary & Extra Income / Salary Cuts
@@ -475,7 +476,6 @@ export const App: React.FC = () => {
         isSampleData={store.settings.isSampleData}
         onSelectMonth={handleSelectMonth}
         onShiftMonth={handleShiftMonth}
-        onCreateNextMonth={handleCreateNextMonth}
         onChangeCurrency={handleChangeCurrency}
         onExportCsv={handleExportCsv}
         onClearDemo={handleClearDemo}

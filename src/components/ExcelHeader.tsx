@@ -4,7 +4,6 @@ import {
   ChevronRight,
   Download,
   FileSpreadsheet,
-  Plus,
   Trash2,
 } from 'lucide-react';
 import { CURRENCY_PRESETS, CurrencyConfig } from '../types/finance';
@@ -17,7 +16,6 @@ interface ExcelHeaderProps {
   isSampleData?: boolean;
   onSelectMonth: (monthKey: string) => void;
   onShiftMonth: (delta: number) => void;
-  onCreateNextMonth: () => void;
   onChangeCurrency: (currency: CurrencyConfig) => void;
   onExportCsv: () => void;
   onClearDemo: () => void;
@@ -30,7 +28,6 @@ export const ExcelHeader: React.FC<ExcelHeaderProps> = ({
   isSampleData,
   onSelectMonth,
   onShiftMonth,
-  onCreateNextMonth,
   onChangeCurrency,
   onExportCsv,
   onClearDemo,
@@ -74,18 +71,9 @@ export const ExcelHeader: React.FC<ExcelHeaderProps> = ({
           type="button"
           onClick={() => onShiftMonth(1)}
           className="flex h-7 w-7 items-center justify-center rounded bg-green-800/80 text-white transition hover:bg-green-900"
-          title="Next month"
+          title="Next month (carries over recurring salary & splits if new)"
         >
           <ChevronRight className="h-4 w-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={onCreateNextMonth}
-          className="ml-1 flex h-7 items-center gap-1 rounded bg-yellow-400 px-2.5 text-xs font-bold text-neutral-950 transition hover:bg-yellow-300"
-          title="Create next month and carry over recurring salary & bills"
-        >
-          <Plus className="h-3.5 w-3.5" strokeWidth={2.5} /> Next Month
         </button>
       </div>
 

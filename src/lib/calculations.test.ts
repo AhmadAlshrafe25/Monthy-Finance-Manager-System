@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateAllocatedByBucket,
   calculateMonthSummary,
+  clampBucketSplitPercent,
   cloneRecurringForNewMonth,
   normalizeBucketsSplit,
 } from './calculations';
@@ -198,5 +199,37 @@ describe('Dynamic Budget & Salary Cut Calculation Engine', () => {
     expect(jodStore.months['2026-11'].incomes[1].amount).toBe(-70.9);
     // 400 USD rent -> 283.6 JOD
     expect(jodStore.months['2026-11'].expenses[0].amount).toBe(283.6);
+  });
+
+  it('never lets budget split percentages exceed 100%, while expense Used % can exceed 100% on overspend', () => {
+    const buckets = [
+      { id: 'mandatory', name: 'Mandatory', color: 'red' as const, splitPercent: 50 },
+      { id: 'fun', name: 'Fun', color: 'yellow' as const, splitPercent: 30 },
+      { id: 'savings', name: 'Savings', color: 'green' as const, splitPercent: 10 },
+    ];
+
+    // Total is 90%, so adding a new bucket asking for 25% caps strictly at 10%
+    expect(clampBucketSplitPercent(buckets, null, 25)).toBe(10);
+    // Raising Mandatory from 50% to 80% caps at 60% (since others sum to 40%)
+    expect(clampBucketSplitPercent(buckets, 'mandatory', 80)).toBe(60);
+
+    // Meanwhile, overspending a bucket pushes Used % above 100%
+    const overMonth: MonthData = {
+      ...sampleMonth,
+      expenses: [
+        {
+          id: 'over1',
+          date: '2026-11-10',
+          title: 'Expensive Dinner',
+          bucket: 'fun',
+          category: 'Dining Out',
+          amount: 495, // 150% of Fun's 330 budget
+          status: 'paid',
+        },
+      ],
+    };
+    const summary = calculateMonthSummary(overMonth, new Date(2026, 10, 15));
+    expect(summary.bucketMap.fun.utilizationPct).toBe(150);
+    expect(summary.bucketMap.fun.isOverBudget).toBe(true);
   });
 });

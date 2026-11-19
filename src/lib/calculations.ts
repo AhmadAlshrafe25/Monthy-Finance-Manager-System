@@ -51,6 +51,20 @@ export function normalizeBucketsSplit(buckets: BucketConfig[]): BucketConfig[] {
   });
 }
 
+export function clampBucketSplitPercent(
+  buckets: BucketConfig[],
+  targetBucketId: string | null,
+  desiredPercent: number
+): number {
+  const othersSum = buckets.reduce(
+    (sum, b) => (b.id === targetBucketId ? sum : sum + Math.max(0, Number(b.splitPercent) || 0)),
+    0
+  );
+  const maxAllowed = Math.max(0, roundMoney(100 - othersSum));
+  const clean = Math.max(0, Number(desiredPercent) || 0);
+  return Math.min(clean, maxAllowed);
+}
+
 export function calculateAllocatedByBucket(month: MonthData): Record<string, number> {
   const allocated: Record<string, number> = {};
   for (const b of month.buckets) {
@@ -60,14 +74,16 @@ export function calculateAllocatedByBucket(month: MonthData): Record<string, num
   if (month.buckets.length === 0) return allocated;
 
   const totalPct = month.buckets.reduce((s, b) => s + Math.max(0, b.splitPercent), 0);
-  const divisor = totalPct > 0 ? totalPct : 100;
+  // Splits never exceed 100%: each bucket gets its exact splitPercent / 100 share
+  // (defensive fallback divides by totalPct only if legacy data exceeded 100)
+  const divisor = totalPct > 100 ? totalPct : 100;
 
   for (const income of month.incomes) {
     // Allow negative numbers naturally (e.g. -35 for salary cuts/deductions)
     const amt = Number(income.amount) || 0;
     if (income.allocationMode === 'split' || allocated[income.allocationMode] === undefined) {
       for (const b of month.buckets) {
-        const share = totalPct > 0 ? Math.max(0, b.splitPercent) / divisor : 1 / month.buckets.length;
+        const share = Math.max(0, b.splitPercent) / divisor;
         allocated[b.id] += amt * share;
       }
     } else {

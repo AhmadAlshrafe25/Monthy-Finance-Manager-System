@@ -14,6 +14,7 @@ import {
 import {
   calculateMonthSummary,
   calculateMultiMonthTrends,
+  clampBucketSplitPercent,
   cloneRecurringForNewMonth,
   getMonthLabel,
   normalizeBucketsSplit,
@@ -338,13 +339,14 @@ export const App: React.FC = () => {
     });
   };
 
-  // Dynamic Budget Split Buckets
+  // Dynamic Budget Split Buckets (Total Split % can NEVER exceed 100%)
   const handleAddBucket = (name: string, color: BucketColorKey, splitPercent: number) => {
     const id = `bkt_${crypto.randomUUID().slice(0, 8)}`;
-    const newBucket: BucketConfig = { id, name, color, splitPercent };
 
     commitStore((prev) => {
       const current = prev.months[prev.activeMonth];
+      const safePct = clampBucketSplitPercent(current.buckets, null, splitPercent);
+      const newBucket: BucketConfig = { id, name, color, splitPercent: safePct };
       return {
         ...prev,
         settings: {
@@ -372,10 +374,19 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateBucket = (bucketId: string, patch: Partial<BucketConfig>) => {
-    updateActiveMonth((m) => ({
-      ...m,
-      buckets: m.buckets.map((b) => (b.id === bucketId ? { ...b, ...patch } : b)),
-    }));
+    updateActiveMonth((m) => {
+      const nextPatch =
+        patch.splitPercent !== undefined
+          ? {
+              ...patch,
+              splitPercent: clampBucketSplitPercent(m.buckets, bucketId, patch.splitPercent),
+            }
+          : patch;
+      return {
+        ...m,
+        buckets: m.buckets.map((b) => (b.id === bucketId ? { ...b, ...nextPatch } : b)),
+      };
+    });
   };
 
   const handleDeleteBucket = (bucketId: string) => {

@@ -65,9 +65,19 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
   const [extraAlloc, setExtraAlloc] = useState<AllocationMode>('split');
   const [extraAmount, setExtraAmount] = useState('');
 
-  // Quick-add new budget split bucket
+  const splitSum = useMemo(
+    () =>
+      Math.round(
+        buckets.reduce((sum, b) => sum + (Number(b.splitPercent) || 0), 0) * 100
+      ) / 100,
+    [buckets]
+  );
+  const availablePct = Math.max(0, Math.round((100 - splitSum) * 100) / 100);
+  const splitBalanced = splitSum === 100;
+
+  // Quick-add new budget split bucket (capped at remaining availablePct so total never exceeds 100%)
   const [newBucketName, setNewBucketName] = useState('');
-  const [newBucketPct, setNewBucketPct] = useState('10');
+  const [newBucketPct, setNewBucketPct] = useState(() => String(Math.min(10, availablePct)));
   const nextDefaultColor: BucketColorKey = useMemo(() => {
     const used = new Set(buckets.map((b) => b.color));
     return BUCKET_COLOR_KEYS.find((c) => !used.has(c)) || 'blue';
@@ -77,6 +87,15 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
   React.useEffect(() => {
     setNewBucketColor(nextDefaultColor);
   }, [nextDefaultColor]);
+
+  React.useEffect(() => {
+    const currentVal = parseFloat(newBucketPct) || 0;
+    if (currentVal > availablePct) {
+      setNewBucketPct(String(availablePct));
+    } else if (currentVal === 0 && availablePct > 0) {
+      setNewBucketPct(String(Math.min(10, availablePct)));
+    }
+  }, [availablePct]);
 
   const handleAddExtraOrCut = (e?: React.SyntheticEvent) => {
     e?.preventDefault();
@@ -101,10 +120,11 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
   const handleCreateBucket = (e?: React.SyntheticEvent) => {
     e?.preventDefault();
     const name = newBucketName.trim() || `Budget ${buckets.length + 1}`;
-    const pct = Math.max(0, Math.min(100, parseFloat(newBucketPct) || 0));
+    const desired = Math.max(0, parseFloat(newBucketPct) || 0);
+    const pct = Math.min(desired, availablePct);
     onAddBucket(name, newBucketColor, pct);
     setNewBucketName('');
-    setNewBucketPct('10');
+    setNewBucketPct(String(Math.min(10, Math.max(0, availablePct - pct))));
   };
 
   const cycleBucketColor = (bucket: BucketConfig) => {
@@ -112,9 +132,6 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
     const nextColor = BUCKET_COLOR_KEYS[(idx + 1) % BUCKET_COLOR_KEYS.length];
     onUpdateBucket(bucket.id, { color: nextColor });
   };
-
-  const splitSum = buckets.reduce((sum, b) => sum + (Number(b.splitPercent) || 0), 0);
-  const splitBalanced = Math.round(splitSum * 100) / 100 === 100;
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-12">
@@ -364,6 +381,8 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 const isVisible = visibleBucketIds.includes(b.id);
                 const pctUsed = m ? m.utilizationPct : 0;
                 const barWidth = Math.min(100, Math.max(0, pctUsed));
+                const othersSum = splitSum - (Number(b.splitPercent) || 0);
+                const maxAllowed = Math.max(0, Math.round((100 - othersSum) * 100) / 100);
 
                 return (
                   <tr
@@ -408,19 +427,20 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                       </div>
                     </td>
 
-                    {/* Editable Split % */}
+                    {/* Editable Split % (Strictly capped so total <= 100%) */}
                     <td className="p-0">
                       <div className="flex items-center justify-center">
                         <input
                           type="number"
                           min={0}
-                          max={100}
+                          max={maxAllowed}
                           value={b.splitPercent}
-                          onChange={(e) =>
-                            onUpdateBucket(b.id, {
-                              splitPercent: Math.max(0, Math.min(100, Number(e.target.value) || 0)),
-                            })
-                          }
+                          title={`Max allowed right now: ${maxAllowed}%`}
+                          onChange={(e) => {
+                            const raw = Number(e.target.value) || 0;
+                            const clamped = Math.max(0, Math.min(maxAllowed, raw));
+                            onUpdateBucket(b.id, { splitPercent: clamped });
+                          }}
                           className="excel-cell-input w-12 text-center font-mono font-bold text-neutral-900"
                         />
                         <span className="pr-1.5 font-mono text-[11px] text-neutral-500">%</span>
@@ -445,6 +465,7 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                       {formatMoney(m?.remaining ?? 0, currency)}
                     </td>
 
+                    {/* Used % — the ONLY % allowed to exceed 100% to alert overspending! */}
                     <td className="px-2 py-1.5">
                       <div className="flex items-center gap-1.5">
                         <div className="h-2.5 flex-1 overflow-hidden border border-neutral-300 bg-white">
@@ -455,7 +476,11 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                             style={{ width: `${barWidth}%` }}
                           />
                         </div>
-                        <span className="w-8 text-right font-mono text-[10px] font-bold text-neutral-700">
+                        <span
+                          className={`w-10 text-right font-mono text-[10px] font-bold ${
+                            pctUsed > 100 ? 'text-red-700' : 'text-neutral-700'
+                          }`}
+                        >
                           {formatPercent(pctUsed, 0)}
                         </span>
                       </div>
@@ -517,9 +542,17 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                     <input
                       type="number"
                       min={0}
-                      max={100}
+                      max={availablePct}
                       value={newBucketPct}
-                      onChange={(e) => setNewBucketPct(e.target.value)}
+                      title={`Available unallocated split: ${availablePct}%`}
+                      onChange={(e) => {
+                        const raw = parseFloat(e.target.value);
+                        if (Number.isNaN(raw)) {
+                          setNewBucketPct('');
+                          return;
+                        }
+                        setNewBucketPct(String(Math.max(0, Math.min(availablePct, raw))));
+                      }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleCreateBucket(e);
                       }}
@@ -528,8 +561,10 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                     <span className="pr-1.5 font-mono text-[11px] text-neutral-500">%</span>
                   </div>
                 </td>
-                <td colSpan={4} className="px-2 py-1 text-[11px] text-neutral-500">
-                  Creates a new color-coded expense table automatically
+                <td colSpan={4} className="px-2 py-1 text-[11px] text-neutral-600">
+                  {availablePct > 0
+                    ? `${availablePct}% available to assign`
+                    : '100% allocated — lower another split to assign % here'}
                 </td>
                 <td className="p-0 text-center">
                   <button
@@ -549,7 +584,7 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                 <td className="px-2 py-2 text-neutral-900">TOTAL MONTH</td>
                 <td
                   className={`px-2 py-2 text-center font-mono ${
-                    splitBalanced ? 'text-green-700' : 'bg-red-100 text-red-700'
+                    splitBalanced ? 'text-green-700' : 'bg-yellow-100 text-yellow-900'
                   }`}
                 >
                   {splitSum}%
@@ -570,7 +605,7 @@ export const SalaryAndSplitSheet: React.FC<SalaryAndSplitSheetProps> = ({
                   {formatMoney(summary.totalRemaining, currency)}
                 </td>
                 <td colSpan={2} className="px-2 py-2 text-[11px] text-neutral-600">
-                  {buckets.length} {buckets.length === 1 ? 'bucket' : 'buckets'}
+                  {availablePct > 0 ? `${availablePct}% unallocated` : `${buckets.length} buckets`}
                 </td>
               </tr>
             </tbody>

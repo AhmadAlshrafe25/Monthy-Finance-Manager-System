@@ -1,0 +1,70 @@
+{
+  "name": "monthly-finance-manager-system",
+  "version": "1.0.0",
+  "description": "Fast, table-first desktop personal finance manager for splitting salary & extra incomes into Mandatory, Fun Spending, and Savings/Debt with real-time fee deductions and deep analytics.",
+  "author": "Ahmad",
+  "license": "MIT",
+  "main": "electron/main.cjs",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:vite": "vite --port 5173 --strictPort",
+    "dev:electron": "wait-on tcp:5173 && ELECTRON_DEV=1 electron .",
+    "dev:web": "vite --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "start": "npm run build && electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "package:linux": "npm run build && electron-builder --linux",
+    "package:win": "npm run build && electron-builder --win",
+    "package:mac": "npm run build && electron-builder --mac"
+  },
+  "dependencies": {
+    "lucide-react": "^0.511.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "recharts": "^2.15.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "concurrently": "^9.1.2",
+    "electron": "^35.2.0",
+    "electron-builder": "^26.0.12",
+    "tailwindcss": "^4.1.4",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.3",
+    "vitest": "^3.1.2",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.ahmad.monthlyfinancemanager",
+    "productName": "Monthly Finance Manager",
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Finance"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.finance"
+    }
+  }
+}
